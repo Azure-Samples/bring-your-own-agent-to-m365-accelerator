@@ -1,1 +1,0 @@
-docker build -t crsbxeaauihryqlcnp.azurecr.io/m365agent:latest -f m365_agent_app/Dockerfile .
