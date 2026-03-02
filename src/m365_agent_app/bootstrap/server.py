@@ -16,6 +16,19 @@ def start_server(agent_app: AgentApplication, connection_manager):
     async def health_bypass_middleware(request: Request, handler):
         if request.path == "/health":
             return await handler(request)
+
+        # When no auth configuration is set (local dev mode without a connection
+        # manager), skip JWT validation and allow anonymous access so the M365
+        # Agents Playground (which sends requests without a JWT) can reach the
+        # bot endpoint without getting a 500 error.
+        if request.app.get("agent_configuration") is None:
+            from microsoft_agents.hosting.core.authorization import ClaimsIdentity
+
+            request["claims_identity"] = ClaimsIdentity(
+                {}, False, authentication_type="Anonymous"
+            )
+            return await handler(request)
+
         return await jwt_authorization_middleware(request, handler)
 
     async def entry_point(req: Request) -> Response:
