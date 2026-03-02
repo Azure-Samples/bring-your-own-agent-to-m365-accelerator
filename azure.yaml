@@ -1,0 +1,23 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+name: agents
+services:
+  m365-agent:
+    project: ./src/m365_agent_app
+    language: python
+    host: appservice
+    hooks:
+      prepackage: 
+        shell: sh
+        run: uv pip compile pyproject.toml -o requirements.txt --prerelease=allow
+        interactive: false
+
+# Used to fill in values from the .env file after infrastructure is provisioned to the system environment variables.
+# This allows referencing azd .env variables in scripts and other places.
+hooks:
+  preprovision:
+    posix:
+      shell: sh
+      continueOnError: false
+      interactive: false
+      run: python ./scripts/tenant_base64_encoded_generation.py

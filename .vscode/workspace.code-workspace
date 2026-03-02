@@ -1,0 +1,33 @@
+{
+  "folders": [
+    {
+      "path": "../.azure"
+    },
+    {
+      "path": "../.devcontainer"
+    },
+    {
+      "path": "../.vscode"
+    },
+    {
+      "path": "../appPackage"
+    },
+    {
+      "path": "../infra",
+    },
+    {
+      "path": "../scripts",
+    },
+    {
+      "path": "../src/m365_agent_app",
+      "name": "src/m365_agent_app",
+      "settings": {
+        "python.defaultInterpreterPath": "../src/m365_agent_app/.venv/bin/python",
+      }
+    }
+  ],
+  "settings": {
+    "debug.internalConsoleOptions": "neverOpen",
+    "debugpy.debugJustMyCode": false
+  }
+}

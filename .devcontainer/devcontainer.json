@@ -1,0 +1,45 @@
+{
+  "name": "AI Agents - Python",
+  "image": "mcr.microsoft.com/devcontainers/python:3.13-bullseye",
+  "features": {
+    "azure-cli": {
+      "version": "latest"
+    },
+    "ghcr.io/va-h/devcontainers-features/uv:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+
+    },
+    "ghcr.io/azure/azure-dev/azd:latest": {},
+    "ghcr.io/devcontainers-extra/features/poetry:2": {},
+    "ghcr.io/devcontainers-extra/features/ruff:1": {}
+  },
+  "forwardPorts": [18888, 3978, 56150],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "github.copilot",
+        "github.copilot-chat",
+        "humao.rest-client",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff",
+        "ms-python.bandit",
+        "ms-python.debugpy",
+        "GraphQL.vscode-graphql-syntax",
+        "ms-vscode.vscode-node-azure-pack",
+        "ms-azuretools.vscode-bicep",
+        "TeamsDevApp.ms-teams-vscode-extension"
+      ],
+      "settings": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": "explicit"
+        },
+        "python.languageServer": "Pylance"
+      }
+    }
+  },
+  "containerUser": "vscode",
+  "postCreateCommand": "npm install -g @microsoft/teams-app-test-tool"
+}
