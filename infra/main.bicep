@@ -29,6 +29,8 @@ param tags object = {
   Environment: environment
   Location: location
   Application: application
+  CostControl: 'Ignore'
+  SecurityControl: 'Ignore'
   Project: 'm365-copilot-pro-code-approach'
 }
 

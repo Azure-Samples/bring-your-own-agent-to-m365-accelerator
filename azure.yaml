@@ -2,7 +2,7 @@
 
 name: agents
 services:
-  m365-agent:
+  teams-agent:
     project: ./src/m365_agent_app
     language: python
     host: appservice

@@ -14,12 +14,12 @@
         "outline": "outline.png"
     },
     "name": {
-        "short": "Azure Update Insights",
-        "full": "Azure Update Insights"
+        "short": "Alfred",
+        "full": "Alfred"
     },
     "description": {
-        "short": "Help you to get Azure Update Insights to get latest updates.",
-        "full": "Help you to get Azure Update Insights to get latest updates and notifications about Azure services."
+        "short": "Help you to get do task related to your company.",
+        "full": "Help you to get Alfred to do task related to your company data."
     },
     "accentColor": "#FFFFFF",
     "copilotAgents": {

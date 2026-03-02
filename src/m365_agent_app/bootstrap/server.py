@@ -1,6 +1,6 @@
 import os
 
-from aiohttp.web import Application, Request, Response, run_app
+from aiohttp.web import Application, Request, Response, middleware, run_app
 from microsoft_agents.hosting.aiohttp import (
     CloudAdapter,
     jwt_authorization_middleware,
@@ -10,15 +10,14 @@ from microsoft_agents.hosting.core import (
     AgentApplication,
 )
 
-# @web.middleware
-# async def health_bypass_middleware(request: Request, handler):
-#     """Bypass auth middleware for the public /health endpoint."""
-#     if request.path == "/health":
-#         return Response(text="OK", status=200)
-#     return await handler(request)
-
 
 def start_server(agent_app: AgentApplication, connection_manager):
+    @middleware
+    async def health_bypass_middleware(request: Request, handler):
+        if request.path == "/health":
+            return await handler(request)
+        return await jwt_authorization_middleware(request, handler)
+
     async def entry_point(req: Request) -> Response:
         agent: AgentApplication = req.app["agent_app"]
         adapter: CloudAdapter = req.app["adapter"]
@@ -30,9 +29,13 @@ def start_server(agent_app: AgentApplication, connection_manager):
         assert res is not None
         return res
 
-    # Put health bypass before JWT so /health is public
+    async def health(req: Request) -> Response:
+        return Response(text="OK", status=200)
+
+    # Use health_bypass_middleware instead of jwt directly so /health is public
     app = Application(
-        middlewares=[jwt_authorization_middleware])
+        middlewares=[health_bypass_middleware])
+    app.router.add_get("/health", health)
     app.router.add_post("/api/messages", entry_point)
     app["agent_configuration"] = (
         connection_manager.get_default_connection_configuration()

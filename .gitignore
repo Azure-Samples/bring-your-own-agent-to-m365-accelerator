@@ -244,3 +244,6 @@ terraform.rc
 
 # Unused requirements.txt files as we used uv package management
 */**/requirements.txt
+
+# M365 Copilot
+appPackage/manifest.json
