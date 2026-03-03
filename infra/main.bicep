@@ -141,6 +141,18 @@ module chatOrchestratorDeploymentModel './modules/foundry/ms-foundry-model.bicep
   dependsOn: [chatSmallDeploymentModel]
 }
 
+module aiSearch './modules/data/ai_search.bicep' = {
+  name: 'aiSearch'
+  scope: resourceGroup
+  params: {
+    name: 'srch-${resourceSuffixKebabcase}'
+    location: location
+    tags: tags
+    skuName: 'standard'
+    semanticSearch: 'standard'
+  }
+}
+
 module appServicePlan './modules/host/appserviceplan.bicep' = {
   name: 'appServicePlan'
   scope: resourceGroup
