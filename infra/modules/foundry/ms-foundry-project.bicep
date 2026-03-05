@@ -19,3 +19,5 @@ resource aiProject 'Microsoft.CognitiveServices/accounts/projects@2025-04-01-pre
 }
 
 output endpoint string = 'https://${msFoundryName}.services.ai.azure.com/api/projects/${aiProjectName}'
+output name string = aiProjectName
+output identityPrincipalId string = aiProject.identity.principalId

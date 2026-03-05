@@ -44,15 +44,15 @@ param msFoundryLocation string = 'eastus2'
 @description('The small model to be used for chat completions')
 param chatSmallModel object = {
   name: 'gpt-4.1-mini'
-  capacity: 2000
+  capacity: 1000
   version: '2025-04-14'
 }
 
 @description('The orchestrator model to be used for chat completions')
 param chatOrchestratorModel object = {
-  name: 'gpt-5-chat'
+  name: 'gpt-5.2'
   capacity: 500
-  version: '2025-10-03'
+  version: '2025-12-11'
 }
 
 @description('Tenant ID for the Entra ID application')
@@ -153,6 +153,16 @@ module aiSearch './modules/data/ai_search.bicep' = {
   }
 }
 
+module msFoundryAISearchConnection './modules/foundry/ms-foundry-ai-search-connection.bicep' = {
+  name: 'msFoundryAISearchConnection'
+  scope: resourceGroup
+  params: {
+    msFoundryName: msFoundry.outputs.name
+    aiProjectName: msFoundryProject.outputs.name
+    aiSearchName: aiSearch.outputs.name
+  }
+}
+
 module appServicePlan './modules/host/appserviceplan.bicep' = {
   name: 'appServicePlan'
   scope: resourceGroup
@@ -220,6 +230,7 @@ module roles './modules/security/roles.bicep' = {
   params: {
     appInsightsName: applicationInsights.outputs.name
     msFoundryName: msFoundry.outputs.name
+    aiSearchName: aiSearch.outputs.name
     // Move role assignment arrays to main and pass into module
     metricsPublisherAssignments: [
       {
@@ -262,6 +273,40 @@ module roles './modules/security/roles.bicep' = {
         principalId: botUami.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
+      }
+      {
+        principalId: deployer().objectId
+        principalType: 'User'
+        principalLabel: 'current-user'
+      }
+    ]
+    searchIndexDataContributorAssignments: [
+      {
+        principalId: botUami.outputs.principalId
+        principalType: 'ServicePrincipal'
+        principalLabel: 'teams-agent'
+      }
+      {
+        principalId: msFoundryProject.outputs.identityPrincipalId
+        principalType: 'ServicePrincipal'
+        principalLabel: 'ms-foundry-project-identity'
+      }
+      {
+        principalId: deployer().objectId
+        principalType: 'User'
+        principalLabel: 'current-user'
+      }
+    ]
+    searchServiceContributorAssignments: [
+      {
+        principalId: botUami.outputs.principalId
+        principalType: 'ServicePrincipal'
+        principalLabel: 'teams-agent'
+      }
+      {
+        principalId: msFoundryProject.outputs.identityPrincipalId
+        principalType: 'ServicePrincipal'
+        principalLabel: 'ms-foundry-project-identity'
       }
       {
         principalId: deployer().objectId

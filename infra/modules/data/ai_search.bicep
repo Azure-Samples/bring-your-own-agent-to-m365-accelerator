@@ -32,10 +32,14 @@ resource aiSearchService 'Microsoft.Search/searchServices@2025-05-01' = {
     }
     disableLocalAuth: false
     authOptions: {
-      apiKeyOnly: {}
+      aadOrApiKey: {
+        aadAuthFailureMode: 'http401WithBearerChallenge'
+      }
     }
     dataExfiltrationProtections: []
     semanticSearch: semanticSearch
     upgradeAvailable: 'notAvailable'
   }
 }
+
+output name string = aiSearchService.name

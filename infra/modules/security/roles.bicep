@@ -1,5 +1,6 @@
 param appInsightsName string
 param msFoundryName string
+param aiSearchName string
 
 // User-defined type for role assignment entries
 type RoleAssignmentInput = {
@@ -19,6 +20,12 @@ param aiUserAssignments array
 
 @description('Assignments for Azure AI Project Manager role on Azure AI Foundry')
 param aiProjectManagerAssignments array
+
+@description('Assignments for Search Index Data Contributor role on Azure AI Foundry')
+param searchIndexDataContributorAssignments array
+
+@description('Assignments for Search Service Contributor role on Azure AI Foundry')
+param searchServiceContributorAssignments array
 
 // https://learn.microsoft.com/en-us/azure/role-based-access-control/built-in-roles/monitor#monitoring-metrics-publisher
 var metricsPublisherRoleId = subscriptionResourceId(
@@ -52,6 +59,10 @@ resource msFoundry 'Microsoft.CognitiveServices/accounts@2025-04-01-preview' exi
   name: msFoundryName
 }
 
+resource aiSearch 'Microsoft.Search/searchServices@2025-05-01' existing = {
+  name: aiSearchName
+}
+
 // Use Cognitive Services OpenAI Contributor for model access
 var cognitiveServicesOpenAIContributorRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
@@ -76,7 +87,6 @@ resource msFoundryOpenAIContributorRoleAssignment 'Microsoft.Authorization/roleA
 ]
 
 // Azure AI User role assignments (iterable)
-
 var azureAIUserRoleId = subscriptionResourceId(
   'Microsoft.Authorization/roleDefinitions',
   '53ca6127-db72-4b80-b1b0-d745d6d5456d'
@@ -111,6 +121,52 @@ resource msFoundryAIProjectManagerRoleAssignment 'Microsoft.Authorization/roleAs
     scope: msFoundry
     properties: {
       roleDefinitionId: azureAIProjectManagerRoleId
+      principalId: assignment.principalId
+      principalType: assignment.principalType
+    }
+  }
+]
+
+// Search Index Data Contributor (iterable)
+var searchIndexDataContributorRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
+)
+
+resource aiSearchIndexDataContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for assignment in searchIndexDataContributorAssignments: if (!empty(assignment.principalId)) {
+    name: guid(
+      aiSearch.id,
+      assignment.principalId,
+      searchIndexDataContributorRoleId,
+      'search-index-data-contributor-${assignment.principalLabel}'
+    )
+    scope: aiSearch
+    properties: {
+      roleDefinitionId: searchIndexDataContributorRoleId
+      principalId: assignment.principalId
+      principalType: assignment.principalType
+    }
+  }
+]
+
+// Search Service Contributor (iterable)
+var searchServiceContributorRoleId = subscriptionResourceId(
+  'Microsoft.Authorization/roleDefinitions',
+  '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
+)
+
+resource aiSearchServiceContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
+  for assignment in searchServiceContributorAssignments: if (!empty(assignment.principalId)) {
+    name: guid(
+      aiSearch.id,
+      assignment.principalId,
+      searchServiceContributorRoleId,
+      'search-service-contributor-${assignment.principalLabel}'
+    )
+    scope: aiSearch
+    properties: {
+      roleDefinitionId: searchServiceContributorRoleId
       principalId: assignment.principalId
       principalType: assignment.principalType
     }
