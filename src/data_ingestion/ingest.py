@@ -11,18 +11,24 @@ import sys
 from pathlib import Path
 
 import fitz  # PyMuPDF
-from azure.identity import DefaultAzureCredential
+from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 from azure.search.documents import SearchClient
 from azure.search.documents.indexes import SearchIndexClient
 from azure.search.documents.indexes.models import (
+    AzureOpenAIVectorizer,
+    AzureOpenAIVectorizerParameters,
+    HnswAlgorithmConfiguration,
     SearchableField,
     SearchField,
     SearchFieldDataType,
     SearchIndex,
     SimpleField,
+    VectorSearch,
+    VectorSearchProfile,
 )
 from docx import Document as DocxDocument
 from dotenv import load_dotenv
+from openai import AzureOpenAI
 from openpyxl import load_workbook
 
 # ---------------------------------------------------------------------------
@@ -34,6 +40,17 @@ SEARCH_ENDPOINT = os.environ["AZURE_SEARCH_ENDPOINT"]
 SEARCH_INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX_NAME", "documents-index")
 # If set, key-based auth is used; otherwise DefaultAzureCredential (recommended)
 SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
+
+# Azure AI Foundry – embedding model configuration
+# OpenAI-compatible endpoint exposed by the AI Services resource
+AZURE_AI_FOUNDRY_ENDPOINT = os.environ["AZURE_AI_FOUNDRY_ENDPOINT"]
+AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT = os.getenv(
+    "AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT", "text-embedding-3-small"
+)
+AZURE_AI_FOUNDRY_API_VERSION = os.getenv(
+    "AZURE_AI_FOUNDRY_API_VERSION", "2024-06-01"
+)
+EMBEDDING_DIMENSIONS = 1536  # text-embedding-3-small default dimensions
 
 SAMPLE_FOLDER = Path(__file__).parent / "sample"
 
@@ -116,6 +133,13 @@ def create_or_update_index(index_client: SearchIndexClient) -> None:
             type=SearchFieldDataType.String,
             analyzer_name="fr.microsoft",
         ),
+        SearchField(
+            name="content_vector",
+            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            searchable=True,
+            vector_search_dimensions=EMBEDDING_DIMENSIONS,
+            vector_search_profile_name="default-vector-profile",
+        ),
         SimpleField(
             name="file_name",
             type=SearchFieldDataType.String,
@@ -135,9 +159,70 @@ def create_or_update_index(index_client: SearchIndexClient) -> None:
         ),
     ]
 
-    index = SearchIndex(name=SEARCH_INDEX_NAME, fields=fields)
+    # Vector search configuration
+    vector_search = VectorSearch(
+        algorithms=[
+            HnswAlgorithmConfiguration(name="default-hnsw"),
+        ],
+        profiles=[
+            VectorSearchProfile(
+                name="default-vector-profile",
+                algorithm_configuration_name="default-hnsw",
+                vectorizer_name="default-openai-vectorizer",
+            ),
+        ],
+        vectorizers=[
+            AzureOpenAIVectorizer(
+                vectorizer_name="default-openai-vectorizer",
+                parameters=AzureOpenAIVectorizerParameters(
+                    resource_url=AZURE_AI_FOUNDRY_ENDPOINT,
+                    deployment_name=AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT,
+                    model_name=AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT,
+                ),
+            ),
+        ],
+    )
+
+    index = SearchIndex(
+        name=SEARCH_INDEX_NAME,
+        fields=fields,
+        vector_search=vector_search,
+    )
     result = index_client.create_or_update_index(index)
     logger.info("Index '%s' created / updated successfully.", result.name)
+
+
+# ---------------------------------------------------------------------------
+# Embedding helper
+# ---------------------------------------------------------------------------
+def _get_embeddings_client() -> AzureOpenAI:
+    """Return an AzureOpenAI client for embedding generation via AI Services."""
+    token_provider = get_bearer_token_provider(
+        DefaultAzureCredential(),
+        "https://cognitiveservices.azure.com/.default",
+    )
+    return AzureOpenAI(
+        azure_endpoint=AZURE_AI_FOUNDRY_ENDPOINT,
+        azure_ad_token_provider=token_provider,
+        api_version=AZURE_AI_FOUNDRY_API_VERSION,
+    )
+
+
+def generate_embeddings(
+    client: AzureOpenAI, texts: list[str]
+) -> list[list[float]]:
+    """Generate embeddings for a list of texts using Azure AI Foundry."""
+    all_embeddings: list[list[float]] = []
+    BATCH_SIZE = 16
+    for i in range(0, len(texts), BATCH_SIZE):
+        batch = texts[i: i + BATCH_SIZE]
+        response = client.embeddings.create(
+            input=batch,
+            model=AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT,
+            dimensions=EMBEDDING_DIMENSIONS,
+        )
+        all_embeddings.extend([item.embedding for item in response.data])
+    return all_embeddings
 
 
 # ---------------------------------------------------------------------------
@@ -218,7 +303,17 @@ def main() -> None:
     documents = collect_documents(SAMPLE_FOLDER)
     logger.info("Found %d document(s) to index.", len(documents))
 
-    # 3. Upload to the index
+    # 3. Generate embeddings for each document
+    if documents:
+        embeddings_client = _get_embeddings_client()
+        texts = [doc["content"] for doc in documents]
+        logger.info("Generating embeddings for %d document(s)…", len(texts))
+        embeddings = generate_embeddings(embeddings_client, texts)
+        for doc, emb in zip(documents, embeddings):
+            doc["content_vector"] = emb
+        logger.info("Embeddings generated successfully.")
+
+    # 4. Upload to the index
     search_client = SearchClient(
         endpoint=SEARCH_ENDPOINT,
         index_name=SEARCH_INDEX_NAME,

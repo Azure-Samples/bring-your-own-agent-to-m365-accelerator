@@ -55,6 +55,13 @@ param chatOrchestratorModel object = {
   version: '2025-12-11'
 }
 
+@description('Embeddings model to be use')
+param embeddingModelName object = {
+  name: 'text-embedding-3-small'
+  capacity: 1000
+  version: '1'
+}
+
 @description('Tenant ID for the Entra ID application')
 param tenantId string = tenant().tenantId
 
@@ -139,6 +146,18 @@ module chatOrchestratorDeploymentModel './modules/foundry/ms-foundry-model.bicep
     modelVersion: chatOrchestratorModel.version
   }
   dependsOn: [chatSmallDeploymentModel]
+}
+
+module embeddingDeploymentModel './modules/foundry/ms-foundry-model.bicep' = {
+  name: 'embeddingDeploymentModel'
+  scope: resourceGroup
+  params: {
+    msFoundryName: msFoundry.outputs.name
+    modelName: embeddingModelName.name
+    modelCapacity: embeddingModelName.capacity
+    modelVersion: embeddingModelName.version
+  }
+  dependsOn: [chatOrchestratorDeploymentModel]
 }
 
 module aiSearch './modules/data/ai_search.bicep' = {
