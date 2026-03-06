@@ -22,6 +22,10 @@ from azure.search.documents.indexes.models import (
     SearchField,
     SearchFieldDataType,
     SearchIndex,
+    SemanticConfiguration,
+    SemanticField,
+    SemanticPrioritizedFields,
+    SemanticSearch,
     SimpleField,
     VectorSearch,
     VectorSearchProfile,
@@ -38,6 +42,8 @@ load_dotenv()
 
 SEARCH_ENDPOINT = os.environ["AZURE_SEARCH_ENDPOINT"]
 SEARCH_INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX_NAME", "documents-index")
+SEMANTIC_CONFIG_NAME = os.getenv(
+    "AZURE_SEARCH_SEMANTIC_CONFIG_NAME", "default-semantic-config")
 # If set, key-based auth is used; otherwise DefaultAzureCredential (recommended)
 SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
 
@@ -187,6 +193,18 @@ def create_or_update_index(index_client: SearchIndexClient) -> None:
         name=SEARCH_INDEX_NAME,
         fields=fields,
         vector_search=vector_search,
+        semantic_search=SemanticSearch(
+            default_configuration_name=SEMANTIC_CONFIG_NAME,
+            configurations=[
+                SemanticConfiguration(
+                    name=SEMANTIC_CONFIG_NAME,
+                    prioritized_fields=SemanticPrioritizedFields(
+                        title_field=SemanticField(field_name="title"),
+                        content_fields=[SemanticField(field_name="content")],
+                    ),
+                )
+            ],
+        ),
     )
     result = index_client.create_or_update_index(index)
     logger.info("Index '%s' created / updated successfully.", result.name)
