@@ -31,6 +31,9 @@ resource storage 'Microsoft.Storage/storageAccounts@2022-05-01' = {
   tags: tags
   kind: kind
   sku: sku
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     accessTier: accessTier
     allowBlobPublicAccess: allowBlobPublicAccess

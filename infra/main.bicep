@@ -75,6 +75,7 @@ var resourceSuffix = [
   substring(resourceToken, 0, 8)
 ]
 var resourceSuffixKebabcase = join(resourceSuffix, '-')
+var resourceSuffixLowercase = join(resourceSuffix, '')
 
 @description('The resource group.')
 resource resourceGroup 'Microsoft.Resources/resourceGroups@2021-04-01' = {
@@ -101,6 +102,35 @@ module applicationInsights './modules/monitor/application-insights.bicep' = {
     location: location
     tags: tags
     logAnalyticsWorkspaceId: logAnalytics.outputs.id
+  }
+}
+
+module storageAccount './modules/storage/storage-account.bicep' = {
+  name: 'storageAccount'
+  scope: resourceGroup
+  params: {
+    name: 'st${resourceSuffixLowercase}'
+    location: location
+    tags: tags
+    accessTier: 'Hot'
+    allowBlobPublicAccess: true
+    allowCrossTenantReplication: false
+    allowSharedKeyAccess: false
+    defaultToOAuthAuthentication: true
+    deleteRetentionPolicy: {
+      enabled: true
+      days: 7
+    }
+    containers: [
+      {
+        name: 'product-data'
+        publicAccess: 'None'
+      }
+      {
+        name: 'pricing-data'
+        publicAccess: 'None'
+      }
+    ]
   }
 }
 
