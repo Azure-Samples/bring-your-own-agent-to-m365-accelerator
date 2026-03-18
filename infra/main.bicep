@@ -109,13 +109,13 @@ module storageAccount './modules/storage/storage-account.bicep' = {
   name: 'storageAccount'
   scope: resourceGroup
   params: {
-    name: 'st${resourceSuffixLowercase}'
+    name: 'sto${resourceSuffixLowercase}'
     location: location
     tags: tags
     accessTier: 'Hot'
-    allowBlobPublicAccess: true
+    allowBlobPublicAccess: false
     allowCrossTenantReplication: false
-    allowSharedKeyAccess: false
+    allowSharedKeyAccess: true
     defaultToOAuthAuthentication: true
     deleteRetentionPolicy: {
       enabled: true

@@ -9,6 +9,7 @@
     "ghcr.io/devcontainers/features/node:1": {
 
     },
+    "ghcr.io/abeckDev/devtunnel-devcontainer-feature/devtunnel:1": {},
     "ghcr.io/azure/azure-dev/azd:latest": {},
     "ghcr.io/devcontainers-extra/features/poetry:2": {},
     "ghcr.io/devcontainers-extra/features/ruff:1": {}

@@ -247,3 +247,6 @@ terraform.rc
 
 # M365 Copilot
 appPackage/manifest.json
+
+# Devtunnel
+DevTunnels/*
