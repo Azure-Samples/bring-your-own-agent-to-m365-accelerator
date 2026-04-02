@@ -1,7 +1,7 @@
 param botName string
 param botDisplayName string
 param botIdentityName string
-param hostName string
+param messagingEndpoint string
 param logAnalyticsId string
 param appInsightsInstrumentationKey string
 
@@ -19,7 +19,7 @@ resource bot 'Microsoft.BotService/botServices@2022-09-15' = {
     msaAppMSIResourceId: botIdentity.id
     msaAppId: botIdentity.properties.clientId
     msaAppTenantId: botIdentity.properties.tenantId
-    endpoint: '${hostName}/api/messages'
+    endpoint: messagingEndpoint
     developerAppInsightKey: appInsightsInstrumentationKey
   }
 }

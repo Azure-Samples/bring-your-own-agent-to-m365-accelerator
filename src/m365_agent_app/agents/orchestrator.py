@@ -78,8 +78,10 @@ class OrchestratorAgent:
             name=cls.name,
             instructions=cls.instructions,
             description="Event coordinator.",
-            tool_choice=ToolMode(mode="auto"),
-            allow_multiple_tool_calls=True,
+            default_options={
+                "tool_choice": ToolMode(mode="auto"),
+                "allow_multiple_tool_calls": True,
+            },
         )
         return cls(chat_agent)
 

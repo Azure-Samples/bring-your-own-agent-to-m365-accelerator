@@ -238,14 +238,22 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
     scmDoBuildDuringDeployment: true
     healthCheckPath: '/health'
     appSettings: {
+      PORT: '3978'
+      WEBSITES_PORT: '3978'
+      // M365 Agents SDK settings (Python uses CONNECTIONS__ prefix from env)
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID: botUami.outputs.clientId
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__AUTHTYPE: 'UserManagedIdentity'
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID: tenant().tenantId
+      // SSO auth handler
+      AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SSO__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'default_user_access_token'
+      // Foundry agent configuration (direct mode — agent-framework in-process)
       MS_FOUNDRY_PROJECT_ENDPOINT: msFoundryProject.outputs.endpoint
-      MS_FOUNDRY_SMALL_MODEL_DEPLOYMENT_NAME: chatSmallModel.name
       MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME: chatOrchestratorModel.name
-      WEBSITES_PORT: '3978'
-      PORT: '3978'
+      // Connections map
+      CONNECTIONSMAP__0__CONNECTION: 'SERVICE_CONNECTION'
+      CONNECTIONSMAP__0__SERVICEURL: '*'
+      // Azure Client ID for managed identity
+      AZURE_CLIENT_ID: botUami.outputs.clientId
     }
   }
 }
@@ -267,7 +275,7 @@ module botService './modules/bot/bot-service.bicep' = {
     botName: 'bot-${resourceSuffixKebabcase}'
     botDisplayName: 'Orchestrator Agent'
     botIdentityName: botUami.outputs.name
-    hostName: teamsAgentAppService.outputs.uri
+    messagingEndpoint: apiManagement.outputs.botMessagingEndpoint
     logAnalyticsId: logAnalytics.outputs.id
     appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
   }
@@ -376,9 +384,44 @@ module appRegistration './modules/security/app-registration.bicep' = {
     tenantId: tenantId
     tenantIdBase64Encoded: tenantIdBase64Encoded
   }
-  dependsOn: [
-    botService
-  ]
+}
+
+// API App Registration — represents the API resource exposed via APIM
+// APIM validates JWT tokens against both bot and API audiences
+module apiAppRegistration './modules/security/api-app-registration.bicep' = {
+  name: 'deploy-api-app-registration'
+  scope: resourceGroup
+  params: {
+    apiAppName: 'api-${resourceSuffixKebabcase}'
+    botAppClientId: appRegistration.outputs.aadAppId
+  }
+}
+
+module apiManagement './modules/apim/apim.bicep' = {
+  name: 'apiManagement'
+  scope: resourceGroup
+  params: {
+    name: apimServiceName
+    location: location
+    tags: tags
+    publisherEmail: apimPublisherEmail
+    publisherName: 'm365-copilot-pro-code-approach'
+    sku: apimSku
+    tenantId: tenantId
+    backendBaseUrl: teamsAgentAppService.outputs.uri
+    foundryBackendUrl: msFoundryProject.outputs.endpoint
+    managedIdentityClientId: botUami.outputs.clientId
+    managedIdentityResourceId: botUami.outputs.id
+    apiPath: apimApiPath
+    allowedAudiences: [
+      appRegistration.outputs.aadAppId
+      appRegistration.outputs.aadAppIdUri
+      apiAppRegistration.outputs.apiAppId
+      apiAppRegistration.outputs.apiAppIdUri
+    ]
+    botAppId: botUami.outputs.clientId
+    botBackendUrl: teamsAgentAppService.outputs.uri
+  }
 }
 
 // Configure OAuth Connection with Azure AD v2 and Federated Credentials
@@ -434,7 +477,14 @@ output AZURE_TENANT_ID string = tenantId
 // Bot Service outputs
 output BOT_ID string = botUami.outputs.clientId
 output BOT_SERVICE_NAME string = botService.outputs.botName
-output BOT_ENDPOINT string = '${teamsAgentAppService.outputs.uri}/api/messages'
+output BOT_ENDPOINT string = apiManagement.outputs.botMessagingEndpoint
+output BOT_DOMAIN string = replace(teamsAgentAppService.outputs.uri, 'https://', '')
+output APIM_NAME string = apiManagement.outputs.name
+output APIM_PROXY_URL string = apiManagement.outputs.proxyUrl
+
+// API App Registration outputs
+output API_APP_CLIENT_ID string = apiAppRegistration.outputs.apiAppId
+output API_APP_ID_URI string = apiAppRegistration.outputs.apiAppIdUri
 
 // App Registration outputs
 output AAD_APP_CLIENT_ID string = appRegistration.outputs.aadAppId

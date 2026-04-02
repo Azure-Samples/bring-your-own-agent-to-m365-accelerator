@@ -18,7 +18,7 @@ def main():
         with get_tracer().start_as_current_span("Scenario: Agent Chat", kind=SpanKind.CLIENT) as current_span:
             print(
                 f"Trace ID: {format_trace_id(current_span.get_span_context().trace_id)}")
-            start_server(AGENT_APP, CONNECTION_MANAGER)
+            start_server(AGENT_APP, CONNECTION_MANAGER.get_default_connection_configuration())
     except Exception as error:
         print(f"❌ Error starting server: {error}")
         raise error
