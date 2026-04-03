@@ -68,6 +68,17 @@ param tenantId string = tenant().tenantId
 @description('Base64 URL encoded Tenant ID for the Entra ID application')
 param tenantIdBase64Encoded string
 
+@description('Publisher email used for API Management metadata.')
+param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
+
+@description('SKU used for the API Management instance.')
+@allowed([
+  'Consumption'
+  'Developer'
+  'BasicV2'
+])
+param apimSku string = 'Consumption'
+
 var resourceToken = toLower(uniqueString(subscription().id, name, environment, application))
 var resourceSuffix = [
   toLower(environment)
@@ -254,7 +265,31 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
       CONNECTIONSMAP__0__SERVICEURL: '*'
       // Azure Client ID for managed identity
       AZURE_CLIENT_ID: botUami.outputs.clientId
+      // AI Search (document-level access control)
+      AZURE_SEARCH_ENDPOINT: 'https://${aiSearch.outputs.name}.search.windows.net'
+      AZURE_SEARCH_INDEX: 'secure-docs'
     }
+  }
+}
+
+module aiSearch './modules/data/ai_search.bicep' = {
+  name: 'aiSearch'
+  scope: resourceGroup
+  params: {
+    name: 'search-${resourceSuffixKebabcase}'
+    location: location
+    tags: tags
+  }
+}
+
+// RBAC: Search Index Data Contributor + Reader for bot identity
+module searchRoles './modules/security/search-roles.bicep' = {
+  name: 'searchRoles'
+  scope: resourceGroup
+  params: {
+    searchServiceName: aiSearch.outputs.name
+    principalId: botUami.outputs.principalId
+    deployerPrincipalId: deployer().objectId
   }
 }
 
@@ -490,3 +525,7 @@ output API_APP_ID_URI string = apiAppRegistration.outputs.apiAppIdUri
 output AAD_APP_CLIENT_ID string = appRegistration.outputs.aadAppId
 output AAD_APP_ID_URI string = appRegistration.outputs.aadAppIdUri
 output FEDERATED_CREDENTIAL_NAME string = appRegistration.outputs.fciName
+
+// AI Search outputs
+output AZURE_SEARCH_ENDPOINT string = 'https://${aiSearch.outputs.name}.search.windows.net'
+output AZURE_SEARCH_INDEX string = 'secure-docs'

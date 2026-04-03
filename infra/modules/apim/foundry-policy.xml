@@ -1,0 +1,37 @@
+<policies>
+  <inbound>
+    <base />
+    <!-- Validate the user JWT obtained via Teams SSO -->
+    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized: invalid token for this API." require-expiration-time="true" require-signed-tokens="true">
+      <openid-config url="{{openid-config-url}}" />
+      <audiences>
+        <audience>{{audience-aad-app-id}}</audience>
+        <audience>{{audience-aad-app-id-uri}}</audience>
+        <audience>{{audience-api-app-id}}</audience>
+        <audience>{{audience-api-app-id-uri}}</audience>
+      </audiences>
+      <issuers>
+        <issuer>{{issuer-v2}}</issuer>
+        <issuer>{{issuer-v1}}</issuer>
+      </issuers>
+    </validate-jwt>
+    <!-- Replace the user JWT with a Managed Identity token for Foundry -->
+    <authentication-managed-identity resource="https://ai.azure.com" client-id="{{managed-identity-client-id}}" output-token-variable-name="foundry-token" />
+    <set-header name="Authorization" exists-action="override">
+      <value>@("Bearer " + (string)context.Variables["foundry-token"])</value>
+    </set-header>
+    <set-header name="X-Validated-By-APIM" exists-action="override">
+      <value>true</value>
+    </set-header>
+    <set-backend-service base-url="{{foundry-backend-url}}" />
+  </inbound>
+  <backend>
+    <forward-request buffer-response="false" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

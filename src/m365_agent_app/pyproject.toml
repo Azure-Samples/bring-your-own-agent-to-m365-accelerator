@@ -15,9 +15,12 @@ dependencies = [
     "agent-framework==1.0.0rc6",
     "agent-framework-azure-ai==1.0.0rc6",
     "agent-framework-core==1.0.0rc6",
+    "agent-framework-foundry==1.0.0rc6",
+    "agent-framework-azure-ai-search>=1.0.0b260330",
     "agent-framework-devui>=1.0.0b260330",
     "azure-monitor-opentelemetry-exporter>=1.0.0b46",
     "azure-ai-projects>=2.0.1",
+    "azure-search-documents>=11.6.0b12",
     "pydantic>=2.12.4",
 ]
 
@@ -26,6 +29,7 @@ packages = [
     "agents",
     "bootstrap",
     "models",
+    "tools",
 ]
 
 [build-system]

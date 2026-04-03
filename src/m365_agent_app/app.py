@@ -8,6 +8,8 @@ Architecture (deployed):
 """
 
 import asyncio
+import base64
+import json
 import traceback
 from os import environ
 
@@ -109,6 +111,16 @@ async def on_message(context: TurnContext, state: TurnState):
             token_response = await AGENT_APP.auth.get_token(context, "SSO")
             if token_response and token_response.token:
                 user_token = token_response.token
+                print(f"[SSO Token] {user_token}")
+                try:
+                    payload = user_token.split(".")[1]
+                    padding = "=" * (-len(payload) % 4)
+                    claims = json.loads(base64.urlsafe_b64decode(payload + padding))
+                    print(f"[SSO Claims] sub={claims.get('sub')} oid={claims.get('oid')} "
+                          f"upn={claims.get('upn', claims.get('preferred_username'))} "
+                          f"scp={claims.get('scp')} aud={claims.get('aud')}")
+                except Exception:
+                    pass
         except Exception as e:
             print(f"Warning: Could not get user token: {e}")
 
