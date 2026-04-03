@@ -133,7 +133,7 @@ async def on_message(context: TurnContext, state: TurnState):
             context.streaming_response.queue_informative_update("...")
 
             agent = await get_agent()
-            async for chunk in agent.invoke(user_input=user_message):
+            async for chunk in agent.invoke(user_input=user_message, user_search_token=user_token):
                 if chunk.agent_response:
                     context.streaming_response.queue_text_chunk(
                         chunk.agent_response.text
