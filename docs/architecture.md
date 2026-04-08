@@ -155,7 +155,76 @@ The Bot Framework JWT is validated by APIM before reaching the App Service:
 </validate-jwt>
 ```
 
-Outbound replies from the bot go directly to the Bot Connector Service (`serviceUrl`), bypassing APIM.
+Outbound replies from the bot go directly to the Bot Connector Service (`serviceUrl`), bypassing APIM. This is standard Bot Framework behavior — the bot posts replies to a Microsoft-managed URL, not back through our infrastructure.
+
+## SSO & Token Exchange Flow
+
+```mermaid
+sequenceDiagram
+    actor User as User (Teams)
+    participant Teams as Teams Client
+    participant Bot as Bot Service
+    participant APIM as APIM
+    participant App as App Service
+    participant TokenSvc as Bot Framework<br/>Token Service
+    participant Entra as Entra ID
+
+    Note over User,Entra: 1. Inbound message via APIM
+
+    User->>Teams: Send message
+    Teams->>Bot: Activity
+    Bot->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
+    APIM->>APIM: validate-jwt<br/>iss=api.botframework.com<br/>aud=bot-app-id
+    APIM->>App: Forward activity
+
+    Note over App,Entra: 2. Token exchange (auth_handlers=["SEARCH"])
+
+    App->>TokenSvc: Get token for search_access_token connection
+    TokenSvc->>Entra: Token exchange<br/>scope=search.azure.com/user_impersonation
+    Entra-->>TokenSvc: Access token (aud=search.azure.com)
+    TokenSvc-->>App: Search token
+
+    Note over App: 3. If first time: Teams shows consent card
+    Note over App: Subsequent requests: silent token exchange
+
+    Note over App,User: 4. Reply (direct to Bot Connector)
+
+    App->>Bot: POST {serviceUrl}/v3/conversations/{id}/activities
+    Bot->>Teams: Display response
+    Teams->>User: Show message
+```
+
+## Network Security
+
+```mermaid
+flowchart TB
+    subgraph INTERNET["Internet"]
+        BotSvc["Bot Service"]
+        BotConnector["Bot Connector Service<br/>smba.trafficmanager.net"]
+    end
+
+    subgraph AZURE["Azure"]
+        APIM["API Management<br/>Public IP"]
+        subgraph VNET["Virtual Network (optional)"]
+            AppSvc["App Service<br/>Private endpoint"]
+        end
+        Search["AI Search"]
+        Foundry["AI Foundry"]
+    end
+
+    BotSvc -->|"Inbound: BF JWT"| APIM
+    APIM -->|"Validated traffic only"| AppSvc
+    AppSvc -->|"MI credential"| Search
+    AppSvc -->|"MI credential"| Foundry
+    AppSvc -.->|"Reply (outbound)"| BotConnector
+
+    style APIM fill:#f39c12,color:#fff
+    style AppSvc fill:#27ae60,color:#fff
+    style Search fill:#2c3e50,color:#fff
+    style Foundry fill:#9b59b6,color:#fff
+```
+
+When configured with a private endpoint, the App Service is not publicly accessible. Only APIM can reach it through VNet integration. Outbound traffic (replies to Bot Connector, calls to AI Search and Foundry) goes through the App Service's managed outbound IPs.
 
 ## Key Design Decisions
 
