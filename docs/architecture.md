@@ -1,645 +1,181 @@
-# Architecture v2 — Unified Bot + Multi-Agent behind APIM
+# Architecture
 
-> Grounded in Microsoft Learn documentation. All references are linked.
+## Overview
 
-## Table of Contents
-
-- [Current vs Proposed Architecture](#current-vs-proposed-architecture)
-- [M365 Agents SDK — What We Should Use vs What Was Bricolé](#m365-agents-sdk--what-we-should-use-vs-what-was-bricolé)
-- [Deployed Architecture (Detailed)](#deployed-architecture-detailed)
-- [SSO Sequence Diagram](#sso-sequence-diagram)
-- [Local Development Architecture](#local-development-architecture)
-- [APIM Policy Design](#apim-policy-design)
-- [Network Security](#network-security)
-- [MS Learn References](#ms-learn-references)
-- [Per-User Document ACL Filtering with AI Search](#per-user-document-acl-filtering-with-ai-search)
-
----
-
-## Current vs Proposed Architecture
-
-### Current (v1) — Proxy Bot before APIM
-
-```mermaid
-flowchart LR
-    Teams["Teams / M365 Copilot"] --> BotService["Bot Service"]
-    BotService -->|"Activity + BF JWT"| AppService1["App Service<br/><b>Proxy Bot</b><br/>(Python)"]
-    AppService1 -->|"SSO → user JWT"| AppService1
-    AppService1 -->|"Bearer: user JWT"| APIM["APIM<br/>validate-jwt<br/>(user JWT)"]
-    APIM -->|"Bearer: MI token"| Foundry["Foundry<br/>Multi-Agent"]
-
-    style AppService1 fill:#e74c3c,color:#fff
-    style APIM fill:#f39c12,color:#fff
-    style Foundry fill:#9b59b6,color:#fff
-```
-
-**Problems:**
-- Proxy bot is a separate app, duplicates boilerplate
-- User JWT is forwarded externally through APIM (token exposure)
-- APIM does a token swap (user JWT → MI) — complex policy
-- Code uses internal SDK patches and custom `UserTokenCredential` class
-- Two deployment targets to manage
-
-### Proposed (v2) — Everything behind APIM, single app
-
-```mermaid
-flowchart LR
-    Teams["Teams / M365 Copilot"] --> BotService["Bot Service"]
-    BotService -->|"Activity + BF JWT"| APIM["APIM<br/>validate-jwt<br/>(Bot Framework JWT)"]
-    APIM -->|"Forwarded Activity"| AppService["App Service<br/><b>Bot + Multi-Agent</b><br/>(Python)"]
-    AppService -->|"SSO → user JWT<br/>(in-process)"| AppService
-    AppService -->|"user context<br/>(in-process)"| MultiAgent["Multi-Agent<br/>System"]
-    AppService -.->|"replies (direct)"| BotConnector["Bot Connector<br/>Service"]
-
-    style APIM fill:#f39c12,color:#fff
-    style AppService fill:#27ae60,color:#fff
-    style MultiAgent fill:#9b59b6,color:#fff
-```
-
-**Benefits:**
-- Single deployment (bot + multi-agent)
-- User JWT stays in-process, never leaves the app
-- APIM validates caller identity (Bot Framework JWT), not user tokens
-- No token swap needed — app has direct access to resources
-- Clean SDK usage, no monkey-patches
-
----
-
-## M365 Agents SDK — What We Should Use vs What Was Bricolé
-
-> Ref: [M365 Agents SDK Overview](https://learn.microsoft.com/microsoft-365/agents-sdk/agents-sdk-overview) |
-> [Python Quickstart](https://learn.microsoft.com/microsoft-365/agents-sdk/quickstart) |
-> [Migration Guide](https://learn.microsoft.com/microsoft-365/agents-sdk/bf-migration-python)
-
-### SDK Classes to Use
-
-| SDK Class | Purpose | Import |
-|-----------|---------|--------|
-| `AgentApplication[TurnState]` | Main app class, handles routing & auth | `microsoft_agents.hosting.core` |
-| `CloudAdapter` | Channel adapter, handles Bot Framework protocol | `microsoft_agents.hosting.aiohttp` |
-| `MemoryStorage` | Turn state storage | `microsoft_agents.hosting.core` |
-| `Authorization` | OAuth/SSO flow management | `microsoft_agents.hosting.core` |
-| `MsalConnectionManager` | MSAL-based auth connections | `microsoft_agents.authentication.msal` |
-| `start_agent_process` | Processes incoming Activities | `microsoft_agents.hosting.aiohttp` |
-| `jwt_authorization_middleware` | Validates incoming Bot Framework JWTs | `microsoft_agents.hosting.aiohttp` |
-| `load_configuration_from_env` | Loads config from env vars | `microsoft_agents.activity` |
-| `TurnContext` | Per-turn context (activity, send, streaming) | `microsoft_agents.hosting.core` |
-
-### What Was Bricolé (To Remove)
-
-| Bricolage | What it does | SDK replacement |
-|-----------|-------------|----------------|
-| `_OAuthFlow` monkey-patch | Catches `ValueError` on signin/failure invokes | **Fixed in newer SDK versions** — update SDK and remove patch |
-| `UserTokenCredential` class | Wraps user JWT as `TokenCredential` for Azure SDK | **Not needed** — in v2, the user token stays in-process; multi-agent system receives user identity directly, not via Bearer token through APIM |
-| Manual `load_configuration_from_env` + `MsalConnectionManager` wiring | Auth bootstrap | Use SDK's **standard `start_server` pattern** from quickstart |
-| `_proxy_mode` / direct mode branching | Two code paths | **Single path** — bot always does SSO, always calls multi-agent in-process |
-| `extra_body` with `agent_reference` | Injects Foundry agent reference into Responses API | **Still needed if using Foundry** — but can be encapsulated in a clean service class |
-| Custom `server.py` with middleware hacks | JWT bypass for health/playground | Use SDK's standard **`start_server`** with `AgentAuthConfiguration` |
-
-### Proper SDK Setup (from [Quickstart](https://learn.microsoft.com/microsoft-365/agents-sdk/quickstart))
-
-```python
-# start_server.py — SDK standard pattern
-from microsoft_agents.hosting.core import AgentApplication, AgentAuthConfiguration
-from microsoft_agents.hosting.aiohttp import (
-    start_agent_process,
-    jwt_authorization_middleware,
-    CloudAdapter,
-)
-from aiohttp.web import Request, Response, Application, run_app
-
-def start_server(
-    agent_application: AgentApplication,
-    auth_configuration: AgentAuthConfiguration,
-):
-    async def entry_point(req: Request) -> Response:
-        return await start_agent_process(
-            req, req.app["agent_app"], req.app["adapter"],
-        )
-
-    APP = Application(middlewares=[jwt_authorization_middleware])
-    APP.router.add_post("/api/messages", entry_point)
-    APP["agent_configuration"] = auth_configuration
-    APP["agent_app"] = agent_application
-    APP["adapter"] = agent_application.adapter
-    run_app(APP, host="0.0.0.0", port=int(environ.get("PORT", 3978)))
-```
-
-```python
-# app.py — clean AgentApplication with SSO
-from microsoft_agents.hosting.core import (
-    AgentApplication, TurnState, TurnContext, MemoryStorage, Authorization,
-)
-from microsoft_agents.hosting.aiohttp import CloudAdapter
-from microsoft_agents.authentication.msal import MsalConnectionManager
-from microsoft_agents.activity import load_configuration_from_env
-
-config = load_configuration_from_env(environ)
-connection_manager = MsalConnectionManager(**config)
-adapter = CloudAdapter(connection_manager=connection_manager)
-authorization = Authorization(MemoryStorage(), connection_manager, **config)
-
-AGENT_APP = AgentApplication[TurnState](
-    storage=MemoryStorage(),
-    adapter=adapter,
-    authorization=authorization,
-    **config,
-)
-
-@AGENT_APP.activity("message", auth_handlers=["SSO"])
-async def on_message(context: TurnContext, state: TurnState):
-    # SSO already completed — get user token
-    token = await AGENT_APP.auth.get_token(context, "SSO")
-    # Pass user identity to multi-agent system (in-process)
-    await multi_agent_system.handle(context, state, user_token=token.token)
-```
-
-### Auth Configuration ([Env Vars](https://learn.microsoft.com/microsoft-365/agents-sdk/bf-migration-python#configuration))
-
-```env
-# Required — Bot identity
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID=<bot-app-id>
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTSECRET=<client-secret>
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID=<tenant-id>
-
-# SSO handler
-AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SSO__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME=default_user_access_token
-
-# Connection map
-CONNECTIONSMAP__0__SERVICEURL=*
-CONNECTIONSMAP__0__CONNECTION=SERVICE_CONNECTION
-```
-
----
-
-## Deployed Architecture (Detailed)
+This application exposes a multi-agent system as an M365 Copilot / Teams bot, secured behind Azure API Management with per-user document access control via Azure AI Search.
 
 ```mermaid
 flowchart TB
-    subgraph CLIENT["👤 End User"]
+    subgraph CLIENT["End User"]
         Teams["Microsoft Teams<br/>or M365 Copilot"]
     end
 
-    subgraph ENTRA["🔐 Microsoft Entra ID"]
-        BotAppReg["Bot App Registration<br/>api://botid-{id}<br/><i>audience for Bot Framework JWT</i>"]
-        OAuthToken["Bot Framework<br/>Token Service<br/><i>token.botframework.com</i>"]
-        EntraTokens["Entra ID Token Endpoint<br/><i>login.microsoftonline.com</i>"]
+    subgraph ENTRA["Microsoft Entra ID"]
+        BotAppReg["Bot App Registration<br/>api://botid-{id}"]
+        OAuthToken["Bot Framework<br/>Token Service"]
+        EntraTokens["Entra ID Token Endpoint"]
+        GraphAPI["Microsoft Graph<br/>resolves user group memberships"]
     end
 
-    subgraph BOT_SERVICE["🤖 Azure Bot Service"]
-        Bot["Bot Channel Registration<br/><i>Messaging endpoint =<br/>https://apim-xxx.azure-api.net<br/>/bot/api/messages</i>"]
-        OAuthConn["OAuth Connection<br/><b>default_user_access_token</b><br/>AAD v2 + Federated Credentials<br/><i>scopes: api://api-app/access_as_user</i>"]
+    subgraph BOT_SERVICE["Azure Bot Service"]
+        Bot["Bot Channel Registration<br/>Messaging endpoint =<br/>APIM URL"]
+        OAuthSSO["OAuth Connection<br/>default_user_access_token"]
+        OAuthSearch["OAuth Connection<br/>search_access_token<br/>scope: search.azure.com/user_impersonation"]
     end
 
-    subgraph APIM_GW["🛡️ Azure API Management"]
-        direction TB
-
-        subgraph BOT_OP["Operation: POST /bot/api/messages"]
-            BotJWT["<b>validate-jwt</b><br/>iss = api.botframework.com<br/>aud = {bot-app-id}<br/>openid-config =<br/>login.botframework.com/.well-known"]
-        end
-
-        subgraph API_OP["Operation: POST /api/*"]
-            UserJWT["<b>validate-jwt</b><br/>iss = login.microsoftonline.com/{tid}/v2.0<br/>aud = {api-app-id}<br/>openid-config =<br/>login.microsoftonline.com/{tid}/v2.0"]
-        end
+    subgraph APIM_GW["Azure API Management"]
+        BotJWT["validate-jwt<br/>iss = api.botframework.com<br/>aud = bot-app-id"]
     end
 
-    subgraph APP["⚙️ App Service / ACA<br/><i>(Private endpoint — only APIM can reach)</i>"]
-        direction TB
-        BotHandler["/api/messages<br/><b>M365 Agents SDK</b><br/>AgentApplication + CloudAdapter<br/>jwt_authorization_middleware"]
-        SSO["SSO Handler<br/><b>auth_handlers=['SSO']</b><br/>OAuth card exchange<br/>→ gets user JWT"]
-        MultiAgent["Multi-Agent System<br/><b>Orchestrator Agent</b><br/>receives user identity in-process<br/>applies authZ per-user"]
-        APIHandler["/api/agent/chat<br/><b>Direct API endpoint</b><br/>for non-bot clients<br/>user JWT already validated by APIM"]
+    subgraph APP["App Service"]
+        BotHandler["/api/messages<br/>M365 Agents SDK<br/>AgentApplication + CloudAdapter"]
+        AuthHandler["auth_handlers=['SEARCH']<br/>Token exchange via Bot Framework<br/>Token Service"]
+        AgentFW["Agent + FoundryChatClient<br/>SecureSearchContextProvider<br/>contextvars (async-safe)"]
     end
 
-    subgraph DOWNSTREAM["🌐 Downstream Resources"]
-        Graph["Microsoft Graph API<br/><i>on behalf of user</i>"]
-        DB["Databases / APIs<br/><i>scoped to user</i>"]
-        Foundry["Azure AI Foundry<br/><i>via Managed Identity</i>"]
+    subgraph SEARCH["Azure AI Search"]
+        Index["Index: secure-docs<br/>permissionFilterOption=ENABLED"]
+        ACL["x-ms-query-source-authorization<br/>Native permission filtering"]
+        Docs_PM["PM Documents<br/>group: SG-ProjectManagers"]
+        Docs_MK["Marketing Documents<br/>group: SG-Marketing"]
+        Docs_Shared["Shared Documents<br/>group: all"]
     end
 
-    %% ── Bot flow (Teams → APIM → App) ──
-    Teams -->|"1️⃣ User sends message"| Bot
-    Bot -->|"2️⃣ POST /bot/api/messages<br/>Authorization: Bearer BF_JWT"| BotJWT
-    BotJWT -->|"3️⃣ JWT validated ✅<br/>Forward to backend"| BotHandler
-
-    %% ── SSO flow (App ↔ Bot Connector ↔ Teams) ──
-    BotHandler -->|"4️⃣ auth_handlers=['SSO']<br/>triggers OAuth flow"| SSO
-    SSO -.->|"5️⃣ OAuth Card<br/>(outbound, direct)"| Bot
-    Bot -.->|"6️⃣ Token exchange request"| Teams
-    Teams -.->|"7️⃣ Consent + token"| Bot
-    Bot -.->|"8️⃣ Token exchange"| OAuthToken
-    OAuthToken -.->|"9️⃣ User JWT<br/>(oid, tid, scopes)"| SSO
-
-    %% ── Multi-agent invocation ──
-    SSO -->|"🔟 User token + message<br/>(in-process call)"| MultiAgent
-
-    %% ── Downstream calls ──
-    MultiAgent -->|"OBO token<br/>(on behalf of user)"| Graph
-    MultiAgent -->|"User-scoped queries"| DB
-    MultiAgent -->|"MI credential<br/>(app identity)"| Foundry
-
-    %% ── API flow (non-bot clients) ──
-    UserJWT -->|"JWT validated ✅"| APIHandler
-    APIHandler --> MultiAgent
-
-    %% ── Bot replies (outbound, direct — NOT through APIM) ──
-    BotHandler -.->|"1️⃣1️⃣ Reply Activities<br/>(outbound, direct to<br/>Bot Connector serviceUrl)"| Bot
-
-    %% Styling
-    classDef entra fill:#0078d4,color:#fff,stroke:#005a9e
-    classDef bot fill:#7b83eb,color:#fff,stroke:#5b5fc7
-    classDef apim fill:#ff8c00,color:#fff,stroke:#cc7000
-    classDef app fill:#27ae60,color:#fff,stroke:#1e8449
-    classDef downstream fill:#2c3e50,color:#fff,stroke:#1a252f
-    classDef user fill:#34495e,color:#fff,stroke:#2c3e50
-
-    class BotAppReg,OAuthToken,EntraTokens entra
-    class Bot,OAuthConn bot
-    class BotJWT,UserJWT apim
-    class BotHandler,SSO,MultiAgent,APIHandler app
-    class Graph,DB,Foundry downstream
-    class Teams user
-```
-
----
-
-## SSO Sequence Diagram
-
-> Ref: [Bot SSO Overview](https://learn.microsoft.com/microsoftteams/platform/bots/how-to/authentication/bot-sso-overview) |
-> [Bot Connector Authentication](https://learn.microsoft.com/azure/bot-service/rest-api/bot-framework-rest-connector-authentication)
-
-```mermaid
-sequenceDiagram
-    actor User as 👤 User (Teams)
-    participant BotSvc as 🤖 Bot Service
-    participant APIM as 🛡️ APIM
-    participant App as ⚙️ App (Bot + Multi-Agent)
-    participant TokenSvc as 🔐 Bot Framework<br/>Token Service
-    participant Entra as 🔐 Entra ID
-    participant MAS as 🧠 Multi-Agent System
-
-    Note over User,MAS: 1. Inbound: User message arrives via APIM
-
-    User->>BotSvc: Send message
-    BotSvc->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT<br/>Body: Activity {text, from, channelId}
-    APIM->>APIM: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
-    APIM->>App: Forward Activity<br/>(JWT validated ✅)
-
-    Note over App: AgentApplication receives Activity<br/>auth_handlers=["SSO"] triggers OAuth flow
-
-    Note over App,Entra: 2. SSO: Token exchange (outbound, direct — bypasses APIM)
-
-    App->>BotSvc: Send OAuth Card<br/>(invoke: signin/tokenExchange)
-    BotSvc->>User: Display consent / SSO prompt
-    User->>BotSvc: Consent granted
-    BotSvc->>TokenSvc: Token exchange request
-    TokenSvc->>Entra: Exchange for user token<br/>scope: api://{api-app}/access_as_user
-    Entra-->>TokenSvc: User JWT (oid, tid, scp, name, email)
-    TokenSvc-->>App: Token response<br/>(user JWT stored in Token Store)
-
-    Note over App: SSO complete — user JWT obtained
-
-    Note over App,MAS: 3. Multi-agent processing (in-process)
-
-    App->>App: AGENT_APP.auth.get_token(ctx, "SSO")<br/>→ user JWT
-    App->>MAS: handle(message, user_identity)<br/>(in-process, no HTTP)
-    MAS->>MAS: Apply authZ based on user claims<br/>(oid, tid, scopes, groups)
-
-    Note over MAS: Downstream calls scoped to user
-
-    MAS-->>App: Agent response
-
-    Note over App,User: 4. Reply (outbound, direct — bypasses APIM)
-
-    App->>BotSvc: Reply Activity<br/>POST {serviceUrl}/v3/conversations/{id}/activities<br/>(direct to Bot Connector, NOT through APIM)
-    BotSvc->>User: Display response
-```
-
----
-
-## Local Development Architecture
-
-```mermaid
-flowchart LR
-    subgraph LOCAL["💻 Developer Machine"]
-        Playground["Agents Playground<br/>teamsapptester<br/>(localhost:56150)"]
-        DevTunnel["Dev Tunnel<br/>dh3h4sxp-3978.eun1<br/>.devtunnels.ms"]
-        App["App Service<br/>localhost:3978<br/><b>ANONYMOUS mode</b><br/>No JWT validation"]
-        MultiAgent["Multi-Agent<br/>(agent-framework<br/>OrchestratorAgent)"]
-    end
-
-    subgraph CLOUD["☁️ Azure"]
-        BotSvc["Bot Service<br/>(messaging endpoint =<br/>dev tunnel URL)"]
-        Foundry["Azure AI Foundry<br/>(direct, via<br/>AzureCliCredential)"]
-    end
-
-    Playground -->|"POST /api/messages<br/>(no JWT)"| App
-    DevTunnel -->|"forward"| App
-    BotSvc -->|"Activity"| DevTunnel
-    App --> MultiAgent
-    MultiAgent -->|"AzureCliCredential"| Foundry
-
-    style App fill:#27ae60,color:#fff
-    style MultiAgent fill:#9b59b6,color:#fff
-```
-
-**Local env:**
-```env
-# Anonymous mode (no auth needed for Playground)
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__ANONYMOUS_ALLOWED=True
-
-# Or with client secret for Teams via dev tunnel
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID=<bot-app-id>
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTSECRET=<client-secret>
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID=<tenant-id>
-```
-
----
-
-## APIM Policy Design
-
-### Operation 1: Bot Framework endpoint
-
-```
-Path: POST /bot/api/messages
-Backend: https://{app-service}.azurewebsites.net/api/messages
-```
-
-```xml
-<inbound>
-    <!-- Validate Bot Framework JWT -->
-    <validate-jwt header-name="Authorization" require-scheme="Bearer"
-                  failed-validation-httpcode="401"
-                  failed-validation-error-message="Unauthorized: Invalid Bot Framework token">
-        <openid-config url="https://login.botframework.com/v1/.well-known/openidconfiguration" />
-        <audiences>
-            <audience>{{bot-app-id}}</audience>
-        </audiences>
-        <issuers>
-            <issuer>https://api.botframework.com</issuer>
-        </issuers>
-    </validate-jwt>
-    <set-header name="X-Forwarded-By" exists-action="override">
-        <value>APIM-Bot</value>
-    </set-header>
-</inbound>
-```
-
-> Ref: [Bot Connector Auth — JWT structure](https://learn.microsoft.com/azure/bot-service/rest-api/bot-framework-rest-connector-authentication): `iss = https://api.botframework.com`, `aud = bot's Microsoft App ID`
-
-### Operation 2: Direct API endpoint
-
-```
-Path: POST /api/agent/*
-Backend: https://{app-service}.azurewebsites.net/api/agent/*
-```
-
-```xml
-<inbound>
-    <!-- Validate Entra ID user JWT -->
-    <validate-jwt header-name="Authorization" require-scheme="Bearer">
-        <openid-config url="https://login.microsoftonline.com/{{tenant-id}}/v2.0/.well-known/openid-configuration" />
-        <audiences>
-            <audience>{{api-app-id}}</audience>
-            <audience>api://{{api-app-id}}</audience>
-        </audiences>
-    </validate-jwt>
-</inbound>
-```
-
-> Ref: [APIM validate-jwt policy](https://learn.microsoft.com/azure/api-management/validate-jwt-policy)
-
----
-
-## Network Security
-
-```mermaid
-flowchart TB
-    subgraph INTERNET["🌐 Internet"]
-        BotSvc["Bot Service"]
-        OtherClients["API Clients"]
-    end
-
-    subgraph VNET["🔒 Virtual Network"]
-        APIM["APIM<br/>(public IP, VNet integrated)"]
-        subgraph PRIVATE_SUBNET["Private Subnet"]
-            AppSvc["App Service<br/>(private endpoint only)<br/>❌ No public access"]
-        end
-    end
-
-    BotSvc -->|"HTTPS"| APIM
-    OtherClients -->|"HTTPS"| APIM
-    APIM -->|"Private endpoint"| AppSvc
-
-    style APIM fill:#f39c12,color:#fff
-    style AppSvc fill:#27ae60,color:#fff
-    style PRIVATE_SUBNET fill:#ecf0f1,stroke:#bdc3c7,stroke-dasharray:5 5
-```
-
-The App Service is **not publicly accessible**. Only APIM can reach it through private endpoint / VNet integration.
-
----
-
-## MS Learn References
-
-| Topic | URL |
-|-------|-----|
-| M365 Agents SDK Overview | https://learn.microsoft.com/microsoft-365/agents-sdk/agents-sdk-overview |
-| Python Quickstart | https://learn.microsoft.com/microsoft-365/agents-sdk/quickstart |
-| Python Migration Guide | https://learn.microsoft.com/microsoft-365/agents-sdk/bf-migration-python |
-| Bot SSO Overview | https://learn.microsoft.com/microsoftteams/platform/bots/how-to/authentication/bot-sso-overview |
-| Bot Connector Authentication | https://learn.microsoft.com/azure/bot-service/rest-api/bot-framework-rest-connector-authentication |
-| Activity Protocol | https://learn.microsoft.com/microsoft-365/agents-sdk/activity-protocol |
-| APIM validate-jwt Policy | https://learn.microsoft.com/azure/api-management/validate-jwt-policy |
-| User Authentication (Python) | https://learn.microsoft.com/microsoftteams/platform/teams-sdk/in-depth-guides/user-authentication |
-| AgentApplication Class (Python) | https://learn.microsoft.com/python/api/microsoft-agents-hosting-core/microsoft_agents.hosting.core.app.agentapplication |
-| Publish Agent to Teams | https://learn.microsoft.com/azure/ai-foundry/agents/how-to/publish-copilot?view=foundry |
-
----
-
-## Per-User Document ACL Filtering with AI Search
-
-> Uses MSAL OBO + native AI Search permission filtering.
-
-### Full Deployed Architecture with AI Search
-
-```mermaid
-flowchart TB
-    subgraph CLIENT["👤 End User"]
-        Teams["Microsoft Teams<br/>or M365 Copilot"]
-    end
-
-    subgraph ENTRA["🔐 Microsoft Entra ID"]
-        BotAppReg["Bot App Registration<br/>api://botid-{id}<br/><i>audience for Bot Framework JWT</i>"]
-        OAuthToken["Bot Framework<br/>Token Service<br/><i>token.botframework.com</i>"]
-        EntraTokens["Entra ID Token Endpoint<br/><i>login.microsoftonline.com</i>"]
-        GraphAPI["Microsoft Graph API<br/><i>resolves user group memberships</i>"]
-    end
-
-    subgraph BOT_SERVICE["🤖 Azure Bot Service"]
-        Bot["Bot Channel Registration<br/><i>Messaging endpoint =<br/>https://apim-xxx.azure-api.net<br/>/bot/api/messages</i>"]
-        OAuthConn["OAuth Connection<br/><b>default_user_access_token</b><br/>AAD v2 + Federated Credentials<br/><i>scopes: api://api-app/access_as_user</i>"]
-    end
-
-    subgraph APIM_GW["🛡️ Azure API Management"]
-        direction TB
-
-        subgraph BOT_OP["Operation: POST /bot/api/messages"]
-            BotJWT["<b>validate-jwt</b><br/>iss = api.botframework.com<br/>aud = {bot-app-id}<br/>openid-config =<br/>login.botframework.com/.well-known"]
-        end
-
-        subgraph API_OP["Operation: POST /api/*"]
-            UserJWT["<b>validate-jwt</b><br/>iss = login.microsoftonline.com/{tid}/v2.0<br/>aud = {api-app-id}"]
-        end
-    end
-
-    subgraph APP["⚙️ App Service<br/><i>(UAMI for Foundry/Search app auth)</i>"]
-        direction TB
-        BotHandler["/api/messages<br/><b>M365 Agents SDK</b><br/>AgentApplication + CloudAdapter"]
-        SSO["SSO Handler<br/><b>auth_handlers=['SSO']</b><br/>OAuth card exchange<br/>→ user JWT (aud=bot-app-id)"]
-        OBO["MSAL OBO Exchange<br/><b>OBO_CONNECTION</b><br/>acquire_token_on_behalf_of<br/>→ search token (aud=search.azure.com)"]
-        AgentFW["Agent + FoundryChatClient<br/><b>SecureSearchContextProvider</b><br/>contextvars (async-safe)"]
-    end
-
-    subgraph SEARCH["🔍 Azure AI Search"]
-        direction TB
-        Index["Index: secure-docs<br/><b>permissionFilterOption=ENABLED</b>"]
-        ACL["Permission Filter<br/>group_ids (GROUP_IDS)<br/><i>x-ms-query-source-authorization</i>"]
-        Docs_PM["PM Docs<br/>group: SG-ProjectManagers"]
-        Docs_MK["Marketing Docs<br/>group: SG-Marketing"]
-        Docs_Shared["Shared Docs<br/>group: [PM, Marketing]"]
-        Docs_All["Public Docs<br/>group: all"]
-    end
-
-    subgraph FOUNDRY["🧠 Azure AI Foundry"]
+    subgraph FOUNDRY["Azure AI Foundry"]
         LLM["FoundryChatClient<br/>streaming response"]
     end
 
-    %% ── Inbound: Teams → APIM → App ──
-    Teams -->|"1️⃣ User sends message"| Bot
-    Bot -->|"2️⃣ POST /bot/api/messages<br/>Authorization: Bearer BF_JWT"| BotJWT
-    BotJWT -->|"3️⃣ JWT validated ✅<br/>Forward to backend"| BotHandler
+    Teams -->|"1. User sends message"| Bot
+    Bot -->|"2. POST /bot/api/messages<br/>Authorization: Bearer BF_JWT"| BotJWT
+    BotJWT -->|"3. JWT validated, forward"| BotHandler
 
-    %% ── SSO flow ──
-    BotHandler -->|"4️⃣ auth_handlers=['SSO']<br/>triggers OAuth flow"| SSO
-    SSO -.->|"5️⃣ OAuth Card (outbound, direct)"| Bot
-    Bot -.->|"6️⃣ Token exchange"| OAuthToken
-    OAuthToken -.->|"7️⃣ User JWT<br/>(oid, tid, scp=access_as_user)"| SSO
+    BotHandler -->|"4. auth_handlers=['SEARCH']"| AuthHandler
+    AuthHandler -.->|"5. OAuth card (outbound)"| Bot
+    Bot -.->|"6. Token exchange"| OAuthToken
+    OAuthToken -.->|"7. Search token<br/>aud=search.azure.com"| AuthHandler
 
-    %% ── OBO exchange ──
-    SSO -->|"8️⃣ SSO token (aud=bot-app-id)"| OBO
-    OBO -->|"9️⃣ OBO exchange via MSAL<br/>scope=search.azure.com/.default"| EntraTokens
-    EntraTokens -->|"🔟 Search token<br/>(aud=search.azure.com)"| OBO
-
-    %% ── AI Search with ACL ──
-    OBO -->|"1️⃣1️⃣ x-ms-query-source-authorization"| ACL
-    ACL -->|"1️⃣2️⃣ Resolve user groups"| GraphAPI
+    AuthHandler -->|"8. x-ms-query-source-authorization"| ACL
+    ACL -->|"9. Resolve user groups"| GraphAPI
     ACL --> Docs_PM
     ACL --> Docs_MK
     ACL --> Docs_Shared
-    ACL --> Docs_All
-    Index -->|"1️⃣3️⃣ Filtered results<br/>(user-scoped)"| AgentFW
+    Index -->|"10. Filtered results"| AgentFW
 
-    %% ── Agent → LLM ──
-    AgentFW -->|"1️⃣4️⃣ User question +<br/>filtered docs as context"| LLM
-    LLM -->|"1️⃣5️⃣ Streaming response"| BotHandler
-
-    %% ── Reply (outbound, direct) ──
-    BotHandler -.->|"1️⃣6️⃣ Reply Activity<br/>(direct to Bot Connector)"| Bot
+    AgentFW -->|"11. User question + docs"| LLM
+    LLM -->|"12. Streaming response"| BotHandler
+    BotHandler -.->|"13. Reply (direct to Bot Connector)"| Bot
     Bot -.-> Teams
 
-    %% ── Non-bot API clients ──
-    UserJWT -->|"JWT validated ✅"| AgentFW
-
-    %% Styling
-    classDef entra fill:#0078d4,color:#fff,stroke:#005a9e
-    classDef bot fill:#7b83eb,color:#fff,stroke:#5b5fc7
-    classDef apim fill:#ff8c00,color:#fff,stroke:#cc7000
-    classDef app fill:#27ae60,color:#fff,stroke:#1e8449
-    classDef search fill:#2c3e50,color:#fff,stroke:#1a252f
-    classDef foundry fill:#9b59b6,color:#fff,stroke:#7d3c98
-    classDef user fill:#34495e,color:#fff,stroke:#2c3e50
+    classDef entra fill:#0078d4,color:#fff
+    classDef bot fill:#7b83eb,color:#fff
+    classDef apim fill:#ff8c00,color:#fff
+    classDef app fill:#27ae60,color:#fff
+    classDef search fill:#2c3e50,color:#fff
+    classDef foundry fill:#9b59b6,color:#fff
 
     class BotAppReg,OAuthToken,EntraTokens,GraphAPI entra
-    class Bot,OAuthConn bot
-    class BotJWT,UserJWT apim
-    class BotHandler,SSO,OBO,AgentFW app
-    class Index,ACL,Docs_PM,Docs_MK,Docs_Shared,Docs_All search
+    class Bot,OAuthSSO,OAuthSearch bot
+    class BotJWT apim
+    class BotHandler,AuthHandler,AgentFW app
+    class Index,ACL,Docs_PM,Docs_MK,Docs_Shared search
     class LLM foundry
-    class Teams user
 ```
 
-### OBO Token Exchange Sequence
+## Authentication Flow
 
 ```mermaid
 sequenceDiagram
     actor User as User (Teams)
-    participant Bot as Bot (App Service)
-    participant MSAL as MSAL
-    participant Entra as Entra ID
+    participant Bot as Bot Service
+    participant APIM as APIM
+    participant App as App Service
+    participant TokenSvc as Bot Framework<br/>Token Service
     participant Search as AI Search
     participant Graph as Microsoft Graph
     participant LLM as Foundry (LLM)
 
     User->>Bot: Send message
-    Bot->>Bot: SSO → get user token<br/>(aud=api://botid-{id})
+    Bot->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
+    APIM->>APIM: validate-jwt (iss=api.botframework.com)
+    APIM->>App: Forward activity
 
-    Note over Bot,Entra: MSAL OBO Exchange
+    Note over App: auth_handlers=["SEARCH"] triggers token exchange
 
-    Bot->>MSAL: acquire_token_on_behalf_of<br/>assertion=SSO token<br/>scope=search.azure.com/.default
-    MSAL->>Entra: Token exchange request<br/>client_id + client_secret + assertion
-    Entra-->>MSAL: Access token (aud=search.azure.com)
-    MSAL-->>Bot: Search token
+    App->>Bot: OAuth card
+    Bot->>User: Consent (first time only)
+    User->>Bot: Consent granted
+    Bot->>TokenSvc: Token exchange
+    TokenSvc-->>App: Search token (aud=search.azure.com)
 
-    Note over Bot,Search: AI Search Query with User Token
-
-    Bot->>Search: POST /indexes/secure-docs/docs/search<br/>Authorization: Bearer {MI token}<br/>x-ms-query-source-authorization: Bearer {search token}
-
+    App->>Search: Query with x-ms-query-source-authorization
     Search->>Graph: Resolve user group memberships
     Graph-->>Search: Groups: [SG-ProjectManagers]
+    Search-->>App: Filtered documents (user-scoped)
 
-    Search->>Search: Filter documents by group_ids<br/>PM docs + shared + all
-
-    Search-->>Bot: Filtered results (user-scoped)
-
-    Bot->>LLM: User question + filtered docs as context
-    LLM-->>Bot: Response based on accessible docs only
-    Bot-->>User: Answer (cites only permitted documents)
+    App->>LLM: User question + filtered documents
+    LLM-->>App: Streaming response
+    App-->>Bot: Reply activity (direct)
+    Bot-->>User: Display response
 ```
 
-### Per-User Results
+## Per-User Document Filtering
 
-| Document | AdeleV (PM) | AlexW (Marketing) |
-|----------|:-----------:|:-----------------:|
-| Q3 Budget Tracker (€145,750) | ✅ | ❌ |
+Documents in AI Search have a `group_ids` field with `permissionFilter=GROUP_IDS`. When a user queries:
+
+1. The App Service acquires a search token via the `SEARCH` auth handler (Bot Framework Token Service)
+2. The search token (`aud=search.azure.com`) is passed to AI Search via `x-ms-query-source-authorization`
+3. AI Search calls Microsoft Graph to resolve the user's Entra security group memberships
+4. Only documents where `group_ids` matches one of the user's groups (or `"all"`) are returned
+5. The agent uses only these filtered documents as context for the LLM
+
+| Document | SG-ProjectManagers | SG-Marketing |
+|----------|:------------------:|:------------:|
+| Q3 Budget Tracker | ✅ | ❌ |
 | Vendor Contracts & SLAs | ✅ | ❌ |
 | Risk Register | ✅ | ❌ |
-| Marketing Campaign Plan (€8,500) | ❌ | ✅ |
+| Marketing Campaign Plan | ❌ | ✅ |
 | Brand Guidelines | ❌ | ✅ |
 | Social Media Calendar | ❌ | ✅ |
 | Event Brief (shared) | ✅ | ✅ |
 | Catering Policy (public) | ✅ | ✅ |
 
-### Setup Requirements
+## APIM Policy
 
-| Step | Automated | Manual |
-|------|:---------:|:------:|
-| AI Search provisioning | `azd provision` | |
-| RBAC on AI Search | Bicep (search-roles.bicep) | |
-| App registration + permissions | Bicep (app-registration.bicep) | |
-| Admin consent (search.azure.com) | Bicep (oauth2PermissionGrants) | Verify with `az ad app permission admin-consent` |
-| Client secret on app registration | | Azure Portal → Certificates & secrets |
-| `AAD_APP_CLIENT_SECRET` env var | | `az webapp config appsettings set` |
-| Entra security groups | | `az ad group create` + `az ad group member add` |
-| Seed search index | | `python scripts/seed_search_index.py` |
+The Bot Framework JWT is validated by APIM before reaching the App Service:
 
-### AI Search References
+```xml
+<validate-jwt header-name="Authorization" require-scheme="Bearer">
+    <openid-config url="https://login.botframework.com/v1/.well-known/openidconfiguration" />
+    <audiences>
+        <audience>{{bot-app-id}}</audience>
+    </audiences>
+    <issuers>
+        <issuer>https://api.botframework.com</issuer>
+    </issuers>
+</validate-jwt>
+```
+
+Outbound replies from the bot go directly to the Bot Connector Service (`serviceUrl`), bypassing APIM.
+
+## Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| APIM in front of App Service | Network security — App Service can be private endpoint, only APIM reaches it |
+| Bot Framework JWT validated by APIM | Ensures only legitimate Bot Service traffic reaches the app |
+| Search token via Bot Framework Token Service | No client secrets needed — federated credentials handle the OBO exchange |
+| `AzureAISearchContextProvider` subclass | The SDK doesn't yet support `x-ms-query-source-authorization` ([Issue #4878](https://github.com/microsoft/agent-framework/issues/4878)) |
+| `contextvars` for search token | Async-safe per-request state — prevents cross-user token leaking |
+| Per-conversation `AgentSession` | Preserves LLM conversation history without cross-user context leaking |
+
+## References
 
 | Topic | URL |
 |-------|-----|
-| Document-level access control | https://learn.microsoft.com/azure/search/search-document-level-access-overview |
-| Query-time ACL enforcement | https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement |
-| Push API with permission filters | https://learn.microsoft.com/azure/search/search-index-access-control-lists-and-rbac-push-api |
-| MSAL OBO flow | https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow |
-| Python sample (permissions push API) | https://github.com/Azure-Samples/azure-search-python-samples/tree/main/Quickstart-Document-Permissions-Push-API |
-| Agent Framework AI Search provider | https://pypi.org/project/agent-framework-azure-ai-search/ |
+| M365 Agents SDK | https://learn.microsoft.com/microsoft-365/agents-sdk/agents-sdk-overview |
+| Agent Framework (Python) | https://github.com/microsoft/agent-framework |
+| AI Search Document-Level ACLs | https://learn.microsoft.com/azure/search/search-document-level-access-overview |
+| Query-Time ACL Enforcement | https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement |
+| Bot Connector Authentication | https://learn.microsoft.com/azure/bot-service/rest-api/bot-framework-rest-connector-authentication |
+| APIM validate-jwt Policy | https://learn.microsoft.com/azure/api-management/validate-jwt-policy |
+| Bot SSO Overview | https://learn.microsoft.com/microsoftteams/platform/bots/how-to/authentication/bot-sso-overview |
