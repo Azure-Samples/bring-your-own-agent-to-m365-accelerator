@@ -21,9 +21,3 @@ hooks:
       continueOnError: false
       interactive: false
       run: python ./scripts/tenant_base64_encoded_generation.py
-  postprovision:
-    posix:
-      shell: sh
-      continueOnError: false
-      interactive: false
-      run: python ./scripts/setup_obo_secret.py

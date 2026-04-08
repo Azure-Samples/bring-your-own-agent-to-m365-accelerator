@@ -131,9 +131,6 @@ uv run python main.py
 teamsapptester
 ```
 
-## Project Structure
-
-```
 src/m365_agent_app/
   app.py                    # Bot handler — SSO, token acquisition, message routing
   main.py                   # Entry point — starts the aiohttp server
