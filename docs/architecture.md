@@ -459,72 +459,114 @@ The App Service is **not publicly accessible**. Only APIM can reach it through p
 
 ## Per-User Document ACL Filtering with AI Search
 
-> Added on top of the v2 architecture. Uses MSAL OBO + native AI Search permission filtering.
+> Uses MSAL OBO + native AI Search permission filtering.
 
-### Architecture with AI Search
+### Full Deployed Architecture with AI Search
 
 ```mermaid
 flowchart TB
-    subgraph CLIENT["User"]
+    subgraph CLIENT["👤 End User"]
         Teams["Microsoft Teams<br/>or M365 Copilot"]
     end
 
-    subgraph ENTRA["Microsoft Entra ID"]
-        SSO_Token["SSO Token<br/>aud=api://botid-{id}<br/>scp=access_as_user"]
-        OBO["MSAL OBO Exchange<br/>SSO token → Search token<br/>aud=search.azure.com"]
-        Groups["Group Membership<br/>resolved via Graph API"]
+    subgraph ENTRA["🔐 Microsoft Entra ID"]
+        BotAppReg["Bot App Registration<br/>api://botid-{id}<br/><i>audience for Bot Framework JWT</i>"]
+        OAuthToken["Bot Framework<br/>Token Service<br/><i>token.botframework.com</i>"]
+        EntraTokens["Entra ID Token Endpoint<br/><i>login.microsoftonline.com</i>"]
+        GraphAPI["Microsoft Graph API<br/><i>resolves user group memberships</i>"]
     end
 
-    subgraph APIM_GW["APIM"]
-        BotJWT["validate-jwt<br/>Bot Framework"]
+    subgraph BOT_SERVICE["🤖 Azure Bot Service"]
+        Bot["Bot Channel Registration<br/><i>Messaging endpoint =<br/>https://apim-xxx.azure-api.net<br/>/bot/api/messages</i>"]
+        OAuthConn["OAuth Connection<br/><b>default_user_access_token</b><br/>AAD v2 + Federated Credentials<br/><i>scopes: api://api-app/access_as_user</i>"]
     end
 
-    subgraph APP["App Service"]
-        BotHandler["/api/messages<br/>M365 Agents SDK"]
-        SSO_Handler["SSO Handler<br/>auth_handlers=['SSO']"]
-        OBO_Code["MSAL OBO<br/>acquire_token_on_behalf_of<br/>scope: search.azure.com/.default"]
-        AgentFW["Agent + FoundryChatClient<br/>SecureSearchContextProvider"]
+    subgraph APIM_GW["🛡️ Azure API Management"]
+        direction TB
+
+        subgraph BOT_OP["Operation: POST /bot/api/messages"]
+            BotJWT["<b>validate-jwt</b><br/>iss = api.botframework.com<br/>aud = {bot-app-id}<br/>openid-config =<br/>login.botframework.com/.well-known"]
+        end
+
+        subgraph API_OP["Operation: POST /api/*"]
+            UserJWT["<b>validate-jwt</b><br/>iss = login.microsoftonline.com/{tid}/v2.0<br/>aud = {api-app-id}"]
+        end
     end
 
-    subgraph SEARCH["Azure AI Search"]
-        Index["Index: secure-docs<br/>permissionFilterOption=ENABLED"]
-        ACL["Permission Filter<br/>group_ids (GROUP_IDS)<br/>Resolved via Graph"]
+    subgraph APP["⚙️ App Service<br/><i>(UAMI for Foundry/Search app auth)</i>"]
+        direction TB
+        BotHandler["/api/messages<br/><b>M365 Agents SDK</b><br/>AgentApplication + CloudAdapter"]
+        SSO["SSO Handler<br/><b>auth_handlers=['SSO']</b><br/>OAuth card exchange<br/>→ user JWT (aud=bot-app-id)"]
+        OBO["MSAL OBO Exchange<br/><b>OBO_CONNECTION</b><br/>acquire_token_on_behalf_of<br/>→ search token (aud=search.azure.com)"]
+        AgentFW["Agent + FoundryChatClient<br/><b>SecureSearchContextProvider</b><br/>contextvars (async-safe)"]
+    end
+
+    subgraph SEARCH["🔍 Azure AI Search"]
+        direction TB
+        Index["Index: secure-docs<br/><b>permissionFilterOption=ENABLED</b>"]
+        ACL["Permission Filter<br/>group_ids (GROUP_IDS)<br/><i>x-ms-query-source-authorization</i>"]
         Docs_PM["PM Docs<br/>group: SG-ProjectManagers"]
         Docs_MK["Marketing Docs<br/>group: SG-Marketing"]
-        Docs_All["Shared Docs<br/>group: all"]
+        Docs_Shared["Shared Docs<br/>group: [PM, Marketing]"]
+        Docs_All["Public Docs<br/>group: all"]
     end
 
-    subgraph FOUNDRY["Azure AI Foundry"]
-        LLM["FoundryChatClient<br/>gpt-5.2"]
+    subgraph FOUNDRY["🧠 Azure AI Foundry"]
+        LLM["FoundryChatClient<br/>streaming response"]
     end
 
-    Teams -->|"1. Message"| BotJWT
-    BotJWT -->|"2. Forward"| BotHandler
-    BotHandler -->|"3. SSO"| SSO_Handler
-    SSO_Handler -->|"4. SSO token"| SSO_Token
-    SSO_Token -->|"5. OBO exchange"| OBO
-    OBO -->|"6. Search token"| OBO_Code
-    OBO_Code -->|"7. x_ms_query_source_authorization"| ACL
-    ACL -->|"8. Resolve groups"| Groups
+    %% ── Inbound: Teams → APIM → App ──
+    Teams -->|"1️⃣ User sends message"| Bot
+    Bot -->|"2️⃣ POST /bot/api/messages<br/>Authorization: Bearer BF_JWT"| BotJWT
+    BotJWT -->|"3️⃣ JWT validated ✅<br/>Forward to backend"| BotHandler
+
+    %% ── SSO flow ──
+    BotHandler -->|"4️⃣ auth_handlers=['SSO']<br/>triggers OAuth flow"| SSO
+    SSO -.->|"5️⃣ OAuth Card (outbound, direct)"| Bot
+    Bot -.->|"6️⃣ Token exchange"| OAuthToken
+    OAuthToken -.->|"7️⃣ User JWT<br/>(oid, tid, scp=access_as_user)"| SSO
+
+    %% ── OBO exchange ──
+    SSO -->|"8️⃣ SSO token (aud=bot-app-id)"| OBO
+    OBO -->|"9️⃣ OBO exchange via MSAL<br/>scope=search.azure.com/.default"| EntraTokens
+    EntraTokens -->|"🔟 Search token<br/>(aud=search.azure.com)"| OBO
+
+    %% ── AI Search with ACL ──
+    OBO -->|"1️⃣1️⃣ x-ms-query-source-authorization"| ACL
+    ACL -->|"1️⃣2️⃣ Resolve user groups"| GraphAPI
     ACL --> Docs_PM
     ACL --> Docs_MK
+    ACL --> Docs_Shared
     ACL --> Docs_All
-    Index -->|"9. Filtered results"| AgentFW
-    AgentFW -->|"10. User question + docs context"| LLM
-    LLM -->|"11. Response"| BotHandler
-    BotHandler -.->|"12. Reply"| Teams
+    Index -->|"1️⃣3️⃣ Filtered results<br/>(user-scoped)"| AgentFW
 
-    classDef entra fill:#0078d4,color:#fff
-    classDef apim fill:#ff8c00,color:#fff
-    classDef app fill:#27ae60,color:#fff
-    classDef search fill:#2c3e50,color:#fff
-    classDef foundry fill:#9b59b6,color:#fff
+    %% ── Agent → LLM ──
+    AgentFW -->|"1️⃣4️⃣ User question +<br/>filtered docs as context"| LLM
+    LLM -->|"1️⃣5️⃣ Streaming response"| BotHandler
 
-    class SSO_Token,OBO,Groups entra
-    class BotJWT apim
-    class BotHandler,SSO_Handler,OBO_Code,AgentFW app
-    class Index,ACL,Docs_PM,Docs_MK,Docs_All search
+    %% ── Reply (outbound, direct) ──
+    BotHandler -.->|"1️⃣6️⃣ Reply Activity<br/>(direct to Bot Connector)"| Bot
+    Bot -.-> Teams
+
+    %% ── Non-bot API clients ──
+    UserJWT -->|"JWT validated ✅"| AgentFW
+
+    %% Styling
+    classDef entra fill:#0078d4,color:#fff,stroke:#005a9e
+    classDef bot fill:#7b83eb,color:#fff,stroke:#5b5fc7
+    classDef apim fill:#ff8c00,color:#fff,stroke:#cc7000
+    classDef app fill:#27ae60,color:#fff,stroke:#1e8449
+    classDef search fill:#2c3e50,color:#fff,stroke:#1a252f
+    classDef foundry fill:#9b59b6,color:#fff,stroke:#7d3c98
+    classDef user fill:#34495e,color:#fff,stroke:#2c3e50
+
+    class BotAppReg,OAuthToken,EntraTokens,GraphAPI entra
+    class Bot,OAuthConn bot
+    class BotJWT,UserJWT apim
+    class BotHandler,SSO,OBO,AgentFW app
+    class Index,ACL,Docs_PM,Docs_MK,Docs_Shared,Docs_All search
     class LLM foundry
+    class Teams user
 ```
 
 ### OBO Token Exchange Sequence

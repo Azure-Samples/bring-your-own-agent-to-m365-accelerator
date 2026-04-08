@@ -156,7 +156,7 @@ resource aadApplication 'Microsoft.Graph/applications@v1.0' = {
       ]
     }
     {
-      // Azure Cognitive Search — for OBO token exchange (per-user document ACLs)
+      // Azure Cognitive Search — for per-user document ACL filtering
       resourceAppId: '880da380-985e-4198-81b9-e05b1cc53158'
       resourceAccess: [
         {

@@ -62,6 +62,13 @@ param embeddingModelName object = {
   version: '1'
 }
 
+@description('The embedding model for vector search')
+param embeddingModel object = {
+  name: 'text-embedding-3-small'
+  capacity: 350
+  version: '1'
+}
+
 @description('Tenant ID for the Entra ID application')
 param tenantId string = tenant().tenantId
 
@@ -78,6 +85,7 @@ param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
   'BasicV2'
 ])
 param apimSku string = 'Consumption'
+
 
 var resourceToken = toLower(uniqueString(subscription().id, name, environment, application))
 var resourceSuffix = [
@@ -257,22 +265,16 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID: tenant().tenantId
       // SSO auth handler
       AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SSO__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'default_user_access_token'
-      // Search auth handler (OBO for AI Search per-user ACLs)
       AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'search_access_token'
       // Foundry agent configuration (direct mode — agent-framework in-process)
       MS_FOUNDRY_PROJECT_ENDPOINT: msFoundryProject.outputs.endpoint
+      MS_FOUNDRY_RESOURCE_ENDPOINT: msFoundry.outputs.aoaiEndpoint
       MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME: chatOrchestratorModel.name
       // Connections map
       CONNECTIONSMAP__0__CONNECTION: 'SERVICE_CONNECTION'
       CONNECTIONSMAP__0__SERVICEURL: '*'
       // Azure Client ID for managed identity
       AZURE_CLIENT_ID: botUami.outputs.clientId
-      // App registration for MSAL OBO (SSO token -> search token)
-      AAD_APP_CLIENT_ID: appRegistration.outputs.aadAppId
-      // OBO connection for SDK-native token exchange (uses app reg with client secret)
-      // AAD_APP_CLIENT_SECRET is set via postprovision hook (setup_obo_secret.py)
-      CONNECTIONS__OBO_CONNECTION__SETTINGS__CLIENTID: appRegistration.outputs.aadAppId
-      CONNECTIONS__OBO_CONNECTION__SETTINGS__TENANTID: tenant().tenantId
       // AI Search (document-level access control)
       AZURE_SEARCH_ENDPOINT: 'https://${aiSearch.outputs.name}.search.windows.net'
       AZURE_SEARCH_INDEX: 'secure-docs'
@@ -440,6 +442,7 @@ module apiAppRegistration './modules/security/api-app-registration.bicep' = {
   }
 }
 
+
 module apiManagement './modules/apim/apim.bicep' = {
   name: 'apiManagement'
   scope: resourceGroup
@@ -549,6 +552,12 @@ output AAD_APP_CLIENT_ID string = appRegistration.outputs.aadAppId
 output AAD_APP_ID_URI string = appRegistration.outputs.aadAppIdUri
 output FEDERATED_CREDENTIAL_NAME string = appRegistration.outputs.fciName
 
+// SharePoint indexer outputs
+
 // AI Search outputs
 output AZURE_SEARCH_ENDPOINT string = 'https://${aiSearch.outputs.name}.search.windows.net'
 output AZURE_SEARCH_INDEX string = 'secure-docs'
+
+// Foundry outputs
+output FOUNDRY_PROJECT_ENDPOINT string = msFoundryProject.outputs.endpoint
+output MS_FOUNDRY_RESOURCE_ENDPOINT string = msFoundry.outputs.aoaiEndpoint

@@ -30,6 +30,7 @@ packages = [
     "bootstrap",
     "models",
     "tools",
+    "utils",
 ]
 
 [build-system]

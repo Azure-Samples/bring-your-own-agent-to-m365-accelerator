@@ -1,10 +1,10 @@
 """
-M365 Agent Application — Bot + Multi-Agent behind APIM (v2)
+M365 Agent Application — Bot + Multi-Agent behind APIM
 
-Architecture (deployed):
+Architecture:
   Teams/Copilot → Bot Service → APIM (validates BF JWT) → App Service (this)
-    → SSO → user JWT (in-process) → Multi-Agent System (in-process)
-    → replies direct to Bot Connector (bypasses APIM)
+    → SSO + Search token → AI Search (per-user ACLs) → Agent → Foundry
+    → Streaming response → Bot Connector (direct) → Teams
 """
 
 import asyncio
@@ -25,8 +25,8 @@ from microsoft_agents.hosting.core import (
     TurnState,
 )
 
-from agents.constants import get_friendly_label
 from agents.orchestrator import OrchestratorAgent
+from utils import acquire_token, stream_agent_response
 
 load_dotenv()
 
@@ -46,9 +46,7 @@ AGENT_APP = AgentApplication[TurnState](
 )
 
 credential = DefaultAzureCredential(
-    managed_identity_client_id=environ.get(
-        "CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID"
-    )
+    managed_identity_client_id=environ.get("AZURE_CLIENT_ID")
 )
 
 # ── Lazy agent initialization ──
@@ -66,7 +64,7 @@ async def get_agent() -> OrchestratorAgent:
     return _AGENT
 
 
-# ── SSO callbacks ──
+# ── Auth callbacks ──
 
 
 @AGENT_APP.on_sign_in_success
@@ -97,78 +95,26 @@ async def on_install(context: TurnContext, state: TurnState):
     return
 
 
-# ── Message handler (SSO required) ──
+# ── Message handler ──
 
 
-@AGENT_APP.activity("message", auth_handlers=["SSO"])
+@AGENT_APP.activity("message", auth_handlers=["SEARCH"])
 async def on_message(context: TurnContext, state: TurnState):
     user_message = context.activity.text or ""
     if not user_message.strip():
         return
 
     user_name = context.activity.from_property.name or "unknown"
-    conversation_id = context.activity.conversation.id
     logger.info("Message from %s: %s", user_name, user_message[:100])
 
-    # Extract user token for per-user document filtering
-    user_token = None
-    search_token = None
-    if AGENT_APP.auth:
-        try:
-            token_response = await AGENT_APP.auth.get_token(context, "SSO")
-            if token_response and token_response.token:
-                user_token = token_response.token
-                logger.info("SSO token acquired for %s", user_name)
-                try:
-                    obo_connection = CONNECTION_MANAGER.get_connection("OBO_CONNECTION")
-                    search_token = await obo_connection.acquire_token_on_behalf_of(
-                        scopes=["https://search.azure.com/.default"],
-                        user_assertion=user_token,
-                    )
-                    logger.info("Search token acquired via OBO for %s", user_name)
-                except Exception as ex:
-                    logger.warning("OBO exchange failed for %s: %s", user_name, ex)
-        except Exception as e:
-            logger.warning("SSO token acquisition failed: %s", e)
+    search_token = await acquire_token(AGENT_APP, context, "SEARCH", user_name)
 
-    called_tool_ids_and_name: dict[str, str] = {}
     try:
         if context.streaming_response is not None:
-            context.streaming_response.set_generated_by_ai_label(
-                enable_generated_by_ai_label=True
-            )
-            context.streaming_response.queue_informative_update("...")
-
             agent = await get_agent()
-            async for chunk in agent.invoke(
-                user_input=user_message,
-                conversation_id=context.activity.conversation.id,
-                user_search_token=search_token,
-            ):
-                if chunk.agent_response:
-                    context.streaming_response.queue_text_chunk(
-                        chunk.agent_response.text
-                    )
-                elif chunk.tool_calls:
-                    friendly_label = get_friendly_label(chunk.tool_calls.name)
-                    called_tool_ids_and_name[chunk.tool_calls.call_id] = friendly_label
-                    context.streaming_response.queue_informative_update(
-                        f"🔧 Calling the tool for... {friendly_label} with context: {chunk.tool_calls.arguments}"
-                    )
-                elif chunk.tool_answers:
-                    friendly_label = called_tool_ids_and_name.get(
-                        chunk.tool_answers.call_id, "Unknown tool"
-                    )
-                    context.streaming_response.queue_text_chunk(
-                        f"\n\n✅ **{friendly_label}**\n\n"
-                    )
-
-            await context.streaming_response.end_stream()
-            try:
-                await context.streaming_response.wait_for_queue()
-            except Exception as queue_error:
-                logger.debug("Streaming queue completed: %s", queue_error)
-
+            await stream_agent_response(
+                agent, context, user_message, context.activity.conversation.id, search_token
+            )
     except Exception as e:
         logger.error("Agent processing error: %s", e)
         traceback.print_exc()
@@ -178,7 +124,4 @@ async def on_message(context: TurnContext, state: TurnState):
         except Exception:
             pass
         if "ActivityNotFoundInConversation" not in str(e):
-            await context.send_activity(
-                "Sorry, an error occurred. Could you please rephrase your request?"
-            )
-
+            await context.send_activity("Sorry, an error occurred. Could you please rephrase your request?")
