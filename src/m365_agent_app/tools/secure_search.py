@@ -1,9 +1,16 @@
 """
 Secure Azure AI Search context provider with per-user document-level ACLs.
 
-Uses x_ms_query_source_authorization to pass the user's search-scoped token
-to AI Search. The token is obtained via SDK MsalConnectionManager OBO in app.py.
-AI Search automatically resolves the user's group memberships via Graph.
+This module uses the native Agent Framework search provider (AzureAISearchContextProvider)
+but subclasses it to inject the `x_ms_query_source_authorization` HTTP header — the
+user's Entra-scoped search token — into each AI Search query. This enables AI Search's
+native per-user ACL filtering (permissionFilterOption=ENABLED), where the service
+automatically resolves the user's group memberships via Microsoft Graph.
+
+The subclass is necessary because the SDK does not yet support passing
+`x_ms_query_source_authorization` natively. Once resolved, this custom provider
+can be replaced by the standard AzureAISearchContextProvider.
+See: https://github.com/microsoft/agent-framework/issues/4878
 
 Ref: https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement
 """

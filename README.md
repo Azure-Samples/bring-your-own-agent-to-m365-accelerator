@@ -12,12 +12,12 @@ This project is an M365 Agent Application built with Python and the Microsoft Ag
 flowchart TB
     User["Teams / M365 Copilot"] --> Bot["Azure Bot Service"]
     Bot -->|"Bot Framework JWT"| APIM["Azure API Management<br/>validate-jwt"]
-    APIM --> App["Azure App Service<br/>Python"]
-    App -->|"1. SSO + token exchange"| Token["Search Token<br/>aud=search.azure.com"]
-    Token -->|"2. x-ms-query-source-authorization"| Search["Azure AI Search<br/>permissionFilter=GROUP_IDS"]
-    Search -->|"3. Resolve user groups"| Graph["Microsoft Graph"]
-    Search -->|"4. Filtered documents"| Agent["Agent Framework<br/>FoundryChatClient"]
-    Agent -->|"5. LLM call"| Foundry["Microsoft Foundry"]
+    APIM --> App["App Service — Proxy Bot"]
+    App -->|"1. Token exchange"| Token["Search Token<br/>aud=search.azure.com"]
+    Token -->|"2. x-ms-query-source-authorization"| Search["Azure AI Search<br/>per-user ACLs"]
+    Search -->|"3. Resolve groups"| Graph["Microsoft Graph"]
+    Search -->|"4. Filtered docs"| Agent["Agent Framework<br/>FoundryChatClient"]
+    Agent -->|"5. LLM"| Foundry["Microsoft Foundry"]
     App -.->|"Reply (direct)"| Bot
 
     style APIM fill:#f39c12,color:#fff
@@ -129,26 +129,6 @@ uv run python main.py
 
 ```bash
 teamsapptester
-```
-
-src/m365_agent_app/
-  app.py                    # Bot handler — SSO, token acquisition, message routing
-  main.py                   # Entry point — starts the aiohttp server
-  agents/
-    orchestrator.py          # Agent + FoundryChatClient + SecureSearchContextProvider
-    constants.py             # Tool name labels
-  tools/
-    secure_search.py         # Context provider with per-user ACL filtering
-  utils/
-    auth.py                  # Token acquisition helper
-    streaming.py             # Streaming response helper
-  bootstrap/
-    server.py                # aiohttp server with JWT middleware
-scripts/
-  seed_search_index.py       # Creates AI Search index + demo documents with group ACLs
-infra/
-  main.bicep                 # All Azure resources (App Service, Bot, APIM, AI Search, Microsoft Foundry)
-  modules/                   # Bicep modules (APIM, bot, security, search, foundry)
 ```
 
 ## References
