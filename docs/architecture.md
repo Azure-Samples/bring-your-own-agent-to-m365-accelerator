@@ -41,7 +41,7 @@ flowchart TB
         Docs_Shared["Shared Documents<br/>group: all"]
     end
 
-    subgraph FOUNDRY["Azure AI Foundry"]
+    subgraph FOUNDRY["Microsoft Foundry"]
         LLM["FoundryChatClient<br/>streaming response"]
     end
 
@@ -92,7 +92,7 @@ sequenceDiagram
     participant TokenSvc as Bot Framework<br/>Token Service
     participant Search as AI Search
     participant Graph as Microsoft Graph
-    participant LLM as Foundry (LLM)
+    participant LLM as Microsoft Foundry
 
     User->>Bot: Send message
     Bot->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
@@ -209,7 +209,7 @@ flowchart TB
             AppSvc["App Service<br/>Private endpoint"]
         end
         Search["AI Search"]
-        Foundry["AI Foundry"]
+        Foundry["Microsoft Foundry"]
     end
 
     BotSvc -->|"Inbound: BF JWT"| APIM
@@ -224,7 +224,7 @@ flowchart TB
     style Foundry fill:#9b59b6,color:#fff
 ```
 
-When configured with a private endpoint, the App Service is not publicly accessible. Only APIM can reach it through VNet integration. Outbound traffic (replies to Bot Connector, calls to AI Search and Foundry) goes through the App Service's managed outbound IPs.
+When configured with a private endpoint, the App Service is not publicly accessible. Only APIM can reach it through VNet integration. Outbound traffic (replies to Bot Connector, calls to AI Search and Microsoft Foundry) goes through the App Service's managed outbound IPs.
 
 ## Key Design Decisions
 

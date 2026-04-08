@@ -17,7 +17,7 @@ flowchart TB
     Token -->|"2. x-ms-query-source-authorization"| Search["Azure AI Search<br/>permissionFilter=GROUP_IDS"]
     Search -->|"3. Resolve user groups"| Graph["Microsoft Graph"]
     Search -->|"4. Filtered documents"| Agent["Agent Framework<br/>FoundryChatClient"]
-    Agent -->|"5. LLM call"| Foundry["Azure AI Foundry"]
+    Agent -->|"5. LLM call"| Foundry["Microsoft Foundry"]
     App -.->|"Reply (direct)"| Bot
 
     style APIM fill:#f39c12,color:#fff
@@ -35,7 +35,7 @@ See [docs/architecture.md](docs/architecture.md) for the full detailed architect
 - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
 - [Python 3.13+](https://www.python.org/downloads/)
 - [uv](https://docs.astral.sh/uv/)
-- An Azure subscription with access to Azure AI Foundry, AI Search, and API Management
+- An Azure subscription with access to Microsoft Foundry, AI Search, and API Management
 - A Microsoft 365 tenant with Teams/Copilot access
 
 ## Azure Authentication
@@ -55,7 +55,7 @@ azd auth login --use-device-code
 azd up
 ```
 
-This provisions all Azure resources (App Service, Bot Service, API Management, AI Search, Foundry, app registrations, OAuth connections) and deploys the Python application.
+This provisions all Azure resources (App Service, Bot Service, API Management, AI Search, Microsoft Foundry, app registrations, OAuth connections) and deploys the Python application.
 
 > You can also run `azd provision` and `azd deploy` separately.
 
@@ -150,7 +150,7 @@ src/m365_agent_app/
 scripts/
   seed_search_index.py       # Creates AI Search index + demo documents with group ACLs
 infra/
-  main.bicep                 # All Azure resources (App Service, Bot, APIM, AI Search, Foundry)
+  main.bicep                 # All Azure resources (App Service, Bot, APIM, AI Search, Microsoft Foundry)
   modules/                   # Bicep modules (APIM, bot, security, search, foundry)
 ```
 
