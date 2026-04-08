@@ -2,120 +2,157 @@
 
 ## Overview
 
-This application exposes a multi-agent system as an M365 Copilot / Teams bot, secured behind Azure API Management with per-user document access control via Azure AI Search.
+This application exposes a multi-agent system as an M365 Copilot / Teams bot, secured behind Azure API Management with per-user document access control via Azure AI Search and Entra security groups.
+
+## Deployed Architecture (Detailed)
 
 ```mermaid
 flowchart TB
-    subgraph CLIENT["End User"]
+    subgraph CLIENT["👤 End User"]
         Teams["Microsoft Teams<br/>or M365 Copilot"]
     end
 
-    subgraph ENTRA["Microsoft Entra ID"]
-        BotAppReg["Bot App Registration<br/>api://botid-{id}"]
-        OAuthToken["Bot Framework<br/>Token Service"]
-        EntraTokens["Entra ID Token Endpoint"]
-        GraphAPI["Microsoft Graph<br/>resolves user group memberships"]
+    subgraph ENTRA["🔐 Microsoft Entra ID"]
+        BotAppReg["Bot App Registration<br/>api://botid-{id}<br/><i>audience for Bot Framework JWT</i>"]
+        OAuthToken["Bot Framework<br/>Token Service<br/><i>token.botframework.com</i>"]
+        GraphAPI["Microsoft Graph API<br/><i>resolves user group memberships</i>"]
     end
 
-    subgraph BOT_SERVICE["Azure Bot Service"]
-        Bot["Bot Channel Registration<br/>Messaging endpoint =<br/>APIM URL"]
-        OAuthSSO["OAuth Connection<br/>default_user_access_token"]
-        OAuthSearch["OAuth Connection<br/>search_access_token<br/>scope: search.azure.com/user_impersonation"]
+    subgraph BOT_SERVICE["🤖 Azure Bot Service"]
+        Bot["Bot Channel Registration<br/><i>Messaging endpoint =<br/>https://apim-xxx.azure-api.net<br/>/bot/api/messages</i>"]
+        OAuthSearch["OAuth Connection<br/><b>search_access_token</b><br/>AAD v2 + Federated Credentials<br/><i>scopes: search.azure.com/user_impersonation</i>"]
     end
 
-    subgraph APIM_GW["Azure API Management"]
-        BotJWT["validate-jwt<br/>iss = api.botframework.com<br/>aud = bot-app-id"]
+    subgraph APIM_GW["🛡️ Azure API Management"]
+        direction TB
+
+        subgraph BOT_OP["Operation: POST /bot/api/messages"]
+            BotJWT["<b>validate-jwt</b><br/>iss = api.botframework.com<br/>aud = {bot-app-id}<br/>openid-config =<br/>login.botframework.com/.well-known"]
+        end
+
+        subgraph API_OP["Operation: POST /api/*"]
+            UserJWT["<b>validate-jwt</b><br/>iss = login.microsoftonline.com/{tid}/v2.0<br/>aud = {api-app-id}"]
+        end
     end
 
-    subgraph APP["App Service"]
-        BotHandler["/api/messages<br/>M365 Agents SDK<br/>AgentApplication + CloudAdapter"]
-        AuthHandler["auth_handlers=['SEARCH']<br/>Token exchange via Bot Framework<br/>Token Service"]
-        AgentFW["Agent + FoundryChatClient<br/>SecureSearchContextProvider<br/>contextvars (async-safe)"]
+    subgraph APP["⚙️ App Service<br/><i>(Private endpoint — only APIM can reach)</i>"]
+        direction TB
+        BotHandler["/api/messages<br/><b>M365 Agents SDK</b><br/>AgentApplication + CloudAdapter<br/>jwt_authorization_middleware"]
+        SearchAuth["Token Exchange<br/><b>auth_handlers=['SEARCH']</b><br/>Bot Framework Token Service<br/>→ search token (aud=search.azure.com)"]
+        AgentFW["Agent + FoundryChatClient<br/><b>SecureSearchContextProvider</b><br/>contextvars (async-safe)<br/>per-conversation AgentSession"]
     end
 
-    subgraph SEARCH["Azure AI Search"]
-        Index["Index: secure-docs<br/>permissionFilterOption=ENABLED"]
-        ACL["x-ms-query-source-authorization<br/>Native permission filtering"]
+    subgraph SEARCH["🔍 Azure AI Search"]
+        direction TB
+        Index["Index: secure-docs<br/><b>permissionFilterOption=ENABLED</b>"]
+        ACL["Permission Filter<br/>group_ids (GROUP_IDS)<br/><i>x-ms-query-source-authorization</i>"]
         Docs_PM["PM Documents<br/>group: SG-ProjectManagers"]
         Docs_MK["Marketing Documents<br/>group: SG-Marketing"]
-        Docs_Shared["Shared Documents<br/>group: all"]
+        Docs_Shared["Shared Documents<br/>group: [PM, Marketing]"]
+        Docs_All["Public Documents<br/>group: all"]
     end
 
-    subgraph FOUNDRY["Microsoft Foundry"]
+    subgraph FOUNDRY["🧠 Microsoft Foundry"]
         LLM["FoundryChatClient<br/>streaming response"]
     end
 
-    Teams -->|"1. User sends message"| Bot
-    Bot -->|"2. POST /bot/api/messages<br/>Authorization: Bearer BF_JWT"| BotJWT
-    BotJWT -->|"3. JWT validated, forward"| BotHandler
+    %% ── Inbound: Teams → APIM → App ──
+    Teams -->|"1️⃣ User sends message"| Bot
+    Bot -->|"2️⃣ POST /bot/api/messages<br/>Authorization: Bearer BF_JWT"| BotJWT
+    BotJWT -->|"3️⃣ JWT validated ✅<br/>Forward to backend"| BotHandler
 
-    BotHandler -->|"4. auth_handlers=['SEARCH']"| AuthHandler
-    AuthHandler -.->|"5. OAuth card (outbound)"| Bot
-    Bot -.->|"6. Token exchange"| OAuthToken
-    OAuthToken -.->|"7. Search token<br/>aud=search.azure.com"| AuthHandler
+    %% ── Token exchange ──
+    BotHandler -->|"4️⃣ auth_handlers=['SEARCH']<br/>triggers token exchange"| SearchAuth
+    SearchAuth -.->|"5️⃣ OAuth card (outbound, direct)"| Bot
+    Bot -.->|"6️⃣ Token exchange"| OAuthToken
+    OAuthToken -.->|"7️⃣ Search token<br/>(aud=search.azure.com<br/>scp=user_impersonation)"| SearchAuth
 
-    AuthHandler -->|"8. x-ms-query-source-authorization"| ACL
-    ACL -->|"9. Resolve user groups"| GraphAPI
+    %% ── AI Search with ACL ──
+    SearchAuth -->|"8️⃣ x-ms-query-source-authorization"| ACL
+    ACL -->|"9️⃣ Resolve user groups"| GraphAPI
     ACL --> Docs_PM
     ACL --> Docs_MK
     ACL --> Docs_Shared
-    Index -->|"10. Filtered results"| AgentFW
+    ACL --> Docs_All
+    Index -->|"🔟 Filtered results<br/>(user-scoped)"| AgentFW
 
-    AgentFW -->|"11. User question + docs"| LLM
-    LLM -->|"12. Streaming response"| BotHandler
-    BotHandler -.->|"13. Reply (direct to Bot Connector)"| Bot
+    %% ── Agent → LLM ──
+    AgentFW -->|"1️⃣1️⃣ User question +<br/>filtered docs as context"| LLM
+    LLM -->|"1️⃣2️⃣ Streaming response"| BotHandler
+
+    %% ── Reply (outbound, direct) ──
+    BotHandler -.->|"1️⃣3️⃣ Reply Activity<br/>(direct to Bot Connector<br/>serviceUrl)"| Bot
     Bot -.-> Teams
 
-    classDef entra fill:#0078d4,color:#fff
-    classDef bot fill:#7b83eb,color:#fff
-    classDef apim fill:#ff8c00,color:#fff
-    classDef app fill:#27ae60,color:#fff
-    classDef search fill:#2c3e50,color:#fff
-    classDef foundry fill:#9b59b6,color:#fff
+    %% ── Non-bot API clients ──
+    UserJWT -->|"JWT validated ✅"| AgentFW
 
-    class BotAppReg,OAuthToken,EntraTokens,GraphAPI entra
-    class Bot,OAuthSSO,OAuthSearch bot
-    class BotJWT apim
-    class BotHandler,AuthHandler,AgentFW app
-    class Index,ACL,Docs_PM,Docs_MK,Docs_Shared search
+    %% Styling
+    classDef entra fill:#0078d4,color:#fff,stroke:#005a9e
+    classDef bot fill:#7b83eb,color:#fff,stroke:#5b5fc7
+    classDef apim fill:#ff8c00,color:#fff,stroke:#cc7000
+    classDef app fill:#27ae60,color:#fff,stroke:#1e8449
+    classDef search fill:#2c3e50,color:#fff,stroke:#1a252f
+    classDef foundry fill:#9b59b6,color:#fff,stroke:#7d3c98
+    classDef user fill:#34495e,color:#fff,stroke:#2c3e50
+
+    class BotAppReg,OAuthToken,GraphAPI entra
+    class Bot,OAuthSearch bot
+    class BotJWT,UserJWT apim
+    class BotHandler,SearchAuth,AgentFW app
+    class Index,ACL,Docs_PM,Docs_MK,Docs_Shared,Docs_All search
     class LLM foundry
+    class Teams user
 ```
 
-## Authentication Flow
+## Token Exchange Sequence
 
 ```mermaid
 sequenceDiagram
-    actor User as User (Teams)
-    participant Bot as Bot Service
-    participant APIM as APIM
-    participant App as App Service
-    participant TokenSvc as Bot Framework<br/>Token Service
-    participant Search as AI Search
-    participant Graph as Microsoft Graph
-    participant LLM as Microsoft Foundry
+    actor User as 👤 User (Teams)
+    participant Bot as 🤖 Bot Service
+    participant APIM as 🛡️ APIM
+    participant App as ⚙️ App Service
+    participant TokenSvc as 🔐 Bot Framework<br/>Token Service
+    participant Search as 🔍 AI Search
+    participant Graph as 🔐 Microsoft Graph
+    participant LLM as 🧠 Microsoft Foundry
+
+    Note over User,LLM: 1. Inbound: user message arrives via APIM
 
     User->>Bot: Send message
     Bot->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
-    APIM->>APIM: validate-jwt (iss=api.botframework.com)
-    APIM->>App: Forward activity
+    APIM->>APIM: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
+    APIM->>App: Forward Activity (JWT validated ✅)
 
-    Note over App: auth_handlers=["SEARCH"] triggers token exchange
+    Note over App,TokenSvc: 2. Token exchange (auth_handlers=["SEARCH"])
 
-    App->>Bot: OAuth card
-    Bot->>User: Consent (first time only)
+    App->>Bot: OAuth card (outbound, direct)
+    Bot->>User: Consent prompt (first time only)
     User->>Bot: Consent granted
-    Bot->>TokenSvc: Token exchange
-    TokenSvc-->>App: Search token (aud=search.azure.com)
+    Bot->>TokenSvc: Token exchange request<br/>connection: search_access_token
+    TokenSvc-->>App: Search token<br/>(aud=search.azure.com<br/>scp=user_impersonation)
 
-    App->>Search: Query with x-ms-query-source-authorization
+    Note over App: Token stored in Bot Framework Token Store
+    Note over App: Subsequent requests: silent exchange (no consent)
+
+    Note over App,Search: 3. AI Search query with per-user ACL filtering
+
+    App->>Search: POST /indexes/secure-docs/docs/search<br/>Authorization: Bearer {MI token}<br/>x-ms-query-source-authorization: Bearer {search token}
     Search->>Graph: Resolve user group memberships
     Graph-->>Search: Groups: [SG-ProjectManagers]
-    Search-->>App: Filtered documents (user-scoped)
+    Search->>Search: Filter documents by group_ids
+    Search-->>App: Filtered results (user-scoped)
+
+    Note over App,LLM: 4. Agent processes with filtered context
 
     App->>LLM: User question + filtered documents
     LLM-->>App: Streaming response
-    App-->>Bot: Reply activity (direct)
-    Bot-->>User: Display response
+
+    Note over App,User: 5. Reply (outbound, direct — bypasses APIM)
+
+    App->>Bot: Reply Activity<br/>POST {serviceUrl}/v3/conversations/{id}/activities
+    Bot->>User: Display response
 ```
 
 ## Per-User Document Filtering
@@ -139,6 +176,39 @@ Documents in AI Search have a `group_ids` field with `permissionFilter=GROUP_IDS
 | Event Brief (shared) | ✅ | ✅ |
 | Catering Policy (public) | ✅ | ✅ |
 
+## Network Security
+
+```mermaid
+flowchart TB
+    subgraph INTERNET["🌐 Internet"]
+        BotSvc["Bot Service"]
+        BotConnector["Bot Connector Service<br/>smba.trafficmanager.net"]
+    end
+
+    subgraph AZURE["☁️ Azure"]
+        APIM["API Management<br/>(public IP, VNet integrated)"]
+        subgraph PRIVATE_SUBNET["🔒 Private Subnet"]
+            AppSvc["App Service<br/>(private endpoint only)<br/>❌ No public access"]
+        end
+        Search["AI Search"]
+        Foundry["Microsoft Foundry"]
+    end
+
+    BotSvc -->|"Inbound: HTTPS<br/>BF JWT validated"| APIM
+    APIM -->|"Private endpoint"| AppSvc
+    AppSvc -->|"MI credential"| Search
+    AppSvc -->|"MI credential"| Foundry
+    AppSvc -.->|"Reply (outbound,<br/>direct to Microsoft)"| BotConnector
+
+    style APIM fill:#f39c12,color:#fff
+    style AppSvc fill:#27ae60,color:#fff
+    style PRIVATE_SUBNET fill:#ecf0f1,stroke:#bdc3c7,stroke-dasharray:5 5
+    style Search fill:#2c3e50,color:#fff
+    style Foundry fill:#9b59b6,color:#fff
+```
+
+The App Service is **not publicly accessible** when configured with a private endpoint. Only APIM can reach it through VNet integration. Outbound traffic (replies to Bot Connector, calls to AI Search and Microsoft Foundry) goes through the App Service's managed outbound IPs.
+
 ## APIM Policy
 
 The Bot Framework JWT is validated by APIM before reaching the App Service:
@@ -155,87 +225,17 @@ The Bot Framework JWT is validated by APIM before reaching the App Service:
 </validate-jwt>
 ```
 
-Outbound replies from the bot go directly to the Bot Connector Service (`serviceUrl`), bypassing APIM. This is standard Bot Framework behavior — the bot posts replies to a Microsoft-managed URL, not back through our infrastructure.
-
-## SSO & Token Exchange Flow
-
-```mermaid
-sequenceDiagram
-    actor User as User (Teams)
-    participant Teams as Teams Client
-    participant Bot as Bot Service
-    participant APIM as APIM
-    participant App as App Service
-    participant TokenSvc as Bot Framework<br/>Token Service
-    participant Entra as Entra ID
-
-    Note over User,Entra: 1. Inbound message via APIM
-
-    User->>Teams: Send message
-    Teams->>Bot: Activity
-    Bot->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
-    APIM->>APIM: validate-jwt<br/>iss=api.botframework.com<br/>aud=bot-app-id
-    APIM->>App: Forward activity
-
-    Note over App,Entra: 2. Token exchange (auth_handlers=["SEARCH"])
-
-    App->>TokenSvc: Get token for search_access_token connection
-    TokenSvc->>Entra: Token exchange<br/>scope=search.azure.com/user_impersonation
-    Entra-->>TokenSvc: Access token (aud=search.azure.com)
-    TokenSvc-->>App: Search token
-
-    Note over App: 3. If first time: Teams shows consent card
-    Note over App: Subsequent requests: silent token exchange
-
-    Note over App,User: 4. Reply (direct to Bot Connector)
-
-    App->>Bot: POST {serviceUrl}/v3/conversations/{id}/activities
-    Bot->>Teams: Display response
-    Teams->>User: Show message
-```
-
-## Network Security
-
-```mermaid
-flowchart TB
-    subgraph INTERNET["Internet"]
-        BotSvc["Bot Service"]
-        BotConnector["Bot Connector Service<br/>smba.trafficmanager.net"]
-    end
-
-    subgraph AZURE["Azure"]
-        APIM["API Management<br/>Public IP"]
-        subgraph VNET["Virtual Network (optional)"]
-            AppSvc["App Service<br/>Private endpoint"]
-        end
-        Search["AI Search"]
-        Foundry["Microsoft Foundry"]
-    end
-
-    BotSvc -->|"Inbound: BF JWT"| APIM
-    APIM -->|"Validated traffic only"| AppSvc
-    AppSvc -->|"MI credential"| Search
-    AppSvc -->|"MI credential"| Foundry
-    AppSvc -.->|"Reply (outbound)"| BotConnector
-
-    style APIM fill:#f39c12,color:#fff
-    style AppSvc fill:#27ae60,color:#fff
-    style Search fill:#2c3e50,color:#fff
-    style Foundry fill:#9b59b6,color:#fff
-```
-
-When configured with a private endpoint, the App Service is not publicly accessible. Only APIM can reach it through VNet integration. Outbound traffic (replies to Bot Connector, calls to AI Search and Microsoft Foundry) goes through the App Service's managed outbound IPs.
-
 ## Key Design Decisions
 
 | Decision | Rationale |
 |----------|-----------|
 | APIM in front of App Service | Network security — App Service can be private endpoint, only APIM reaches it |
 | Bot Framework JWT validated by APIM | Ensures only legitimate Bot Service traffic reaches the app |
-| Search token via Bot Framework Token Service | No client secrets needed — federated credentials handle the OBO exchange |
+| Search token via Bot Framework Token Service | No client secrets needed — federated credentials handle the token exchange |
 | `AzureAISearchContextProvider` subclass | The SDK doesn't yet support `x-ms-query-source-authorization` ([Issue #4878](https://github.com/microsoft/agent-framework/issues/4878)) |
 | `contextvars` for search token | Async-safe per-request state — prevents cross-user token leaking |
 | Per-conversation `AgentSession` | Preserves LLM conversation history without cross-user context leaking |
+| Outbound replies bypass APIM | Standard Bot Framework behavior — replies go directly to Bot Connector Service (`serviceUrl`) |
 
 ## References
 
