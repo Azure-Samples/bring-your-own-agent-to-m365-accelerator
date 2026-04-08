@@ -1,38 +1,40 @@
 """
 Secure Azure AI Search context provider with per-user document-level ACLs.
 
-Extends AzureAISearchContextProvider to inject the user's Entra token
-via x_ms_query_source_authorization for native permission filtering.
+Uses x_ms_query_source_authorization to pass the user's search-scoped token
+to AI Search. The token is obtained via SDK MsalConnectionManager OBO in app.py.
+AI Search automatically resolves the user's group memberships via Graph.
 
 Ref: https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement
 """
 
+import contextvars
 import logging
 from typing import Any
 
 from agent_framework import Message
 from agent_framework_azure_ai_search import AzureAISearchContextProvider
-from azure.search.documents.models import VectorizableTextQuery, VectorizedQuery, QueryType, QueryCaptionType
+from azure.search.documents.models import QueryCaptionType, QueryType, VectorizableTextQuery, VectorizedQuery
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("secure_search")
+
+# Per-request search token (async-safe via contextvars)
+_current_search_token: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_current_search_token", default=None
+)
+
+
+def set_current_search_token(token: str | None) -> None:
+    _current_search_token.set(token)
 
 
 class SecureSearchContextProvider(AzureAISearchContextProvider):
-    """AzureAISearchContextProvider with per-user token-based ACL enforcement.
+    """Context provider with native per-user ACL filtering via x_ms_query_source_authorization.
 
-    Passes the user's Entra token to AI Search via x_ms_query_source_authorization,
-    so results are automatically filtered based on the user's group memberships.
+    Reads the per-request search token from contextvars (set by app.py via SDK OBO).
     """
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
-        super().__init__(*args, **kwargs)
-        self._user_search_token: str | None = None
-
-    def set_user_token(self, token: str | None) -> None:
-        self._user_search_token = token
-
     async def _semantic_search(self, query: str) -> list[Message]:
-        """Override to inject x_ms_query_source_authorization for per-user ACL filtering."""
         await self._auto_discover_vector_field()
 
         vector_queries: list[VectorizableTextQuery | VectorizedQuery] = []
@@ -49,9 +51,12 @@ class SecureSearchContextProvider(AzureAISearchContextProvider):
             search_params["semantic_configuration_name"] = self.semantic_configuration_name
             search_params["query_caption"] = QueryCaptionType.EXTRACTIVE
 
-        # Per-user ACL: requires OBO token with aud=https://search.azure.com
-        # TODO: configure OAuth connection with search.azure.com scope for OBO
-        # For now, search uses app identity (MI) — all documents visible
+        search_token = _current_search_token.get()
+        if search_token:
+            search_params["x_ms_query_source_authorization"] = search_token
+            logger.info("Querying AI Search with user token (native ACL filtering)")
+        else:
+            logger.warning("No search token — results limited to public documents")
 
         if not self._search_client:
             raise RuntimeError("Search client is not initialized.")
@@ -64,4 +69,6 @@ class SecureSearchContextProvider(AzureAISearchContextProvider):
             doc_text: str = self._extract_document_text(doc, doc_id=doc_id)
             if doc_text:
                 result_messages.append(Message(role="user", text=doc_text))
+
+        logger.info("AI Search returned %d documents", len(result_messages))
         return result_messages

@@ -8,8 +8,7 @@ Architecture (deployed):
 """
 
 import asyncio
-import base64
-import json
+import logging
 import traceback
 from os import environ
 
@@ -30,6 +29,9 @@ from agents.constants import get_friendly_label
 from agents.orchestrator import OrchestratorAgent
 
 load_dotenv()
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logger = logging.getLogger("app")
 
 # ── SDK configuration ──
 
@@ -104,25 +106,30 @@ async def on_message(context: TurnContext, state: TurnState):
     if not user_message.strip():
         return
 
-    # Extract user identity for authZ
+    user_name = context.activity.from_property.name or "unknown"
+    conversation_id = context.activity.conversation.id
+    logger.info("Message from %s: %s", user_name, user_message[:100])
+
+    # Extract user token for per-user document filtering
     user_token = None
+    search_token = None
     if AGENT_APP.auth:
         try:
             token_response = await AGENT_APP.auth.get_token(context, "SSO")
             if token_response and token_response.token:
                 user_token = token_response.token
-                print(f"[SSO Token] {user_token}")
+                logger.info("SSO token acquired for %s", user_name)
                 try:
-                    payload = user_token.split(".")[1]
-                    padding = "=" * (-len(payload) % 4)
-                    claims = json.loads(base64.urlsafe_b64decode(payload + padding))
-                    print(f"[SSO Claims] sub={claims.get('sub')} oid={claims.get('oid')} "
-                          f"upn={claims.get('upn', claims.get('preferred_username'))} "
-                          f"scp={claims.get('scp')} aud={claims.get('aud')}")
-                except Exception:
-                    pass
+                    obo_connection = CONNECTION_MANAGER.get_connection("OBO_CONNECTION")
+                    search_token = await obo_connection.acquire_token_on_behalf_of(
+                        scopes=["https://search.azure.com/.default"],
+                        user_assertion=user_token,
+                    )
+                    logger.info("Search token acquired via OBO for %s", user_name)
+                except Exception as ex:
+                    logger.warning("OBO exchange failed for %s: %s", user_name, ex)
         except Exception as e:
-            print(f"Warning: Could not get user token: {e}")
+            logger.warning("SSO token acquisition failed: %s", e)
 
     called_tool_ids_and_name: dict[str, str] = {}
     try:
@@ -133,7 +140,11 @@ async def on_message(context: TurnContext, state: TurnState):
             context.streaming_response.queue_informative_update("...")
 
             agent = await get_agent()
-            async for chunk in agent.invoke(user_input=user_message, user_search_token=user_token):
+            async for chunk in agent.invoke(
+                user_input=user_message,
+                conversation_id=context.activity.conversation.id,
+                user_search_token=search_token,
+            ):
                 if chunk.agent_response:
                     context.streaming_response.queue_text_chunk(
                         chunk.agent_response.text
@@ -156,10 +167,10 @@ async def on_message(context: TurnContext, state: TurnState):
             try:
                 await context.streaming_response.wait_for_queue()
             except Exception as queue_error:
-                print(f"Note: Streaming queue completed with warning: {queue_error}")
+                logger.debug("Streaming queue completed: %s", queue_error)
 
     except Exception as e:
-        print(f"Error during agent processing: {e}")
+        logger.error("Agent processing error: %s", e)
         traceback.print_exc()
         try:
             if context.streaming_response is not None:

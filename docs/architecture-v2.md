@@ -12,6 +12,7 @@
 - [APIM Policy Design](#apim-policy-design)
 - [Network Security](#network-security)
 - [MS Learn References](#ms-learn-references)
+- [Per-User Document ACL Filtering with AI Search](#per-user-document-acl-filtering-with-ai-search)
 
 ---
 
@@ -453,3 +454,150 @@ The App Service is **not publicly accessible**. Only APIM can reach it through p
 | User Authentication (Python) | https://learn.microsoft.com/microsoftteams/platform/teams-sdk/in-depth-guides/user-authentication |
 | AgentApplication Class (Python) | https://learn.microsoft.com/python/api/microsoft-agents-hosting-core/microsoft_agents.hosting.core.app.agentapplication |
 | Publish Agent to Teams | https://learn.microsoft.com/azure/ai-foundry/agents/how-to/publish-copilot?view=foundry |
+
+---
+
+## Per-User Document ACL Filtering with AI Search
+
+> Added on top of the v2 architecture. Uses MSAL OBO + native AI Search permission filtering.
+
+### Architecture with AI Search
+
+```mermaid
+flowchart TB
+    subgraph CLIENT["User"]
+        Teams["Microsoft Teams<br/>or M365 Copilot"]
+    end
+
+    subgraph ENTRA["Microsoft Entra ID"]
+        SSO_Token["SSO Token<br/>aud=api://botid-{id}<br/>scp=access_as_user"]
+        OBO["MSAL OBO Exchange<br/>SSO token → Search token<br/>aud=search.azure.com"]
+        Groups["Group Membership<br/>resolved via Graph API"]
+    end
+
+    subgraph APIM_GW["APIM"]
+        BotJWT["validate-jwt<br/>Bot Framework"]
+    end
+
+    subgraph APP["App Service"]
+        BotHandler["/api/messages<br/>M365 Agents SDK"]
+        SSO_Handler["SSO Handler<br/>auth_handlers=['SSO']"]
+        OBO_Code["MSAL OBO<br/>acquire_token_on_behalf_of<br/>scope: search.azure.com/.default"]
+        AgentFW["Agent + FoundryChatClient<br/>SecureSearchContextProvider"]
+    end
+
+    subgraph SEARCH["Azure AI Search"]
+        Index["Index: secure-docs<br/>permissionFilterOption=ENABLED"]
+        ACL["Permission Filter<br/>group_ids (GROUP_IDS)<br/>Resolved via Graph"]
+        Docs_PM["PM Docs<br/>group: SG-ProjectManagers"]
+        Docs_MK["Marketing Docs<br/>group: SG-Marketing"]
+        Docs_All["Shared Docs<br/>group: all"]
+    end
+
+    subgraph FOUNDRY["Azure AI Foundry"]
+        LLM["FoundryChatClient<br/>gpt-5.2"]
+    end
+
+    Teams -->|"1. Message"| BotJWT
+    BotJWT -->|"2. Forward"| BotHandler
+    BotHandler -->|"3. SSO"| SSO_Handler
+    SSO_Handler -->|"4. SSO token"| SSO_Token
+    SSO_Token -->|"5. OBO exchange"| OBO
+    OBO -->|"6. Search token"| OBO_Code
+    OBO_Code -->|"7. x_ms_query_source_authorization"| ACL
+    ACL -->|"8. Resolve groups"| Groups
+    ACL --> Docs_PM
+    ACL --> Docs_MK
+    ACL --> Docs_All
+    Index -->|"9. Filtered results"| AgentFW
+    AgentFW -->|"10. User question + docs context"| LLM
+    LLM -->|"11. Response"| BotHandler
+    BotHandler -.->|"12. Reply"| Teams
+
+    classDef entra fill:#0078d4,color:#fff
+    classDef apim fill:#ff8c00,color:#fff
+    classDef app fill:#27ae60,color:#fff
+    classDef search fill:#2c3e50,color:#fff
+    classDef foundry fill:#9b59b6,color:#fff
+
+    class SSO_Token,OBO,Groups entra
+    class BotJWT apim
+    class BotHandler,SSO_Handler,OBO_Code,AgentFW app
+    class Index,ACL,Docs_PM,Docs_MK,Docs_All search
+    class LLM foundry
+```
+
+### OBO Token Exchange Sequence
+
+```mermaid
+sequenceDiagram
+    actor User as User (Teams)
+    participant Bot as Bot (App Service)
+    participant MSAL as MSAL
+    participant Entra as Entra ID
+    participant Search as AI Search
+    participant Graph as Microsoft Graph
+    participant LLM as Foundry (LLM)
+
+    User->>Bot: Send message
+    Bot->>Bot: SSO → get user token<br/>(aud=api://botid-{id})
+
+    Note over Bot,Entra: MSAL OBO Exchange
+
+    Bot->>MSAL: acquire_token_on_behalf_of<br/>assertion=SSO token<br/>scope=search.azure.com/.default
+    MSAL->>Entra: Token exchange request<br/>client_id + client_secret + assertion
+    Entra-->>MSAL: Access token (aud=search.azure.com)
+    MSAL-->>Bot: Search token
+
+    Note over Bot,Search: AI Search Query with User Token
+
+    Bot->>Search: POST /indexes/secure-docs/docs/search<br/>Authorization: Bearer {MI token}<br/>x-ms-query-source-authorization: Bearer {search token}
+
+    Search->>Graph: Resolve user group memberships
+    Graph-->>Search: Groups: [SG-ProjectManagers]
+
+    Search->>Search: Filter documents by group_ids<br/>PM docs + shared + all
+
+    Search-->>Bot: Filtered results (user-scoped)
+
+    Bot->>LLM: User question + filtered docs as context
+    LLM-->>Bot: Response based on accessible docs only
+    Bot-->>User: Answer (cites only permitted documents)
+```
+
+### Per-User Results
+
+| Document | AdeleV (PM) | AlexW (Marketing) |
+|----------|:-----------:|:-----------------:|
+| Q3 Budget Tracker (€145,750) | ✅ | ❌ |
+| Vendor Contracts & SLAs | ✅ | ❌ |
+| Risk Register | ✅ | ❌ |
+| Marketing Campaign Plan (€8,500) | ❌ | ✅ |
+| Brand Guidelines | ❌ | ✅ |
+| Social Media Calendar | ❌ | ✅ |
+| Event Brief (shared) | ✅ | ✅ |
+| Catering Policy (public) | ✅ | ✅ |
+
+### Setup Requirements
+
+| Step | Automated | Manual |
+|------|:---------:|:------:|
+| AI Search provisioning | `azd provision` | |
+| RBAC on AI Search | Bicep (search-roles.bicep) | |
+| App registration + permissions | Bicep (app-registration.bicep) | |
+| Admin consent (search.azure.com) | Bicep (oauth2PermissionGrants) | Verify with `az ad app permission admin-consent` |
+| Client secret on app registration | | Azure Portal → Certificates & secrets |
+| `AAD_APP_CLIENT_SECRET` env var | | `az webapp config appsettings set` |
+| Entra security groups | | `az ad group create` + `az ad group member add` |
+| Seed search index | | `python scripts/seed_search_index.py` |
+
+### AI Search References
+
+| Topic | URL |
+|-------|-----|
+| Document-level access control | https://learn.microsoft.com/azure/search/search-document-level-access-overview |
+| Query-time ACL enforcement | https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement |
+| Push API with permission filters | https://learn.microsoft.com/azure/search/search-index-access-control-lists-and-rbac-push-api |
+| MSAL OBO flow | https://learn.microsoft.com/entra/identity-platform/v2-oauth2-on-behalf-of-flow |
+| Python sample (permissions push API) | https://github.com/Azure-Samples/azure-search-python-samples/tree/main/Quickstart-Document-Permissions-Push-API |
+| Agent Framework AI Search provider | https://pypi.org/project/agent-framework-azure-ai-search/ |

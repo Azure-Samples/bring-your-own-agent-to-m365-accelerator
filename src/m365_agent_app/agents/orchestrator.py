@@ -1,3 +1,4 @@
+import logging
 import os
 from typing import AsyncIterable
 
@@ -5,7 +6,9 @@ from agent_framework import Agent, AgentSession
 from agent_framework.foundry import FoundryChatClient
 from azure.identity import AzureCliCredential, DefaultAzureCredential
 from models.orchestrator_response import OrchestratorResponse
-from tools.secure_search import SecureSearchContextProvider
+from tools.secure_search import SecureSearchContextProvider, set_current_search_token
+
+logger = logging.getLogger("orchestrator")
 
 
 class OrchestratorAgent:
@@ -27,13 +30,16 @@ If no documents are found, tell the user you don't have access to relevant infor
 Be concise and professional. Cite the document title when referencing information.
 """
     agent: Agent
-    search_provider: SecureSearchContextProvider | None = None
-    session: AgentSession | None = None
+    _sessions: dict[str, AgentSession]
 
-    def __init__(self, agent: Agent, search_provider: SecureSearchContextProvider | None = None):
+    def __init__(self, agent: Agent):
         self.agent = agent
-        self.search_provider = search_provider
-        self.session = AgentSession()
+        self._sessions = {}
+
+    def _get_session(self, conversation_id: str) -> AgentSession:
+        if conversation_id not in self._sessions:
+            self._sessions[conversation_id] = AgentSession()
+        return self._sessions[conversation_id]
 
     @classmethod
     async def create(cls, credential: AzureCliCredential | DefaultAzureCredential) -> "OrchestratorAgent":
@@ -61,22 +67,20 @@ Be concise and professional. Cite the document title when referencing informatio
             instructions=cls.instructions,
             context_providers=context_providers,
         )
-        return cls(agent, search_provider)
+        return cls(agent)
 
-    async def invoke(self, user_input: str, user_search_token: str | None = None) -> AsyncIterable[OrchestratorResponse]:
-        # Set the user's token for per-user document filtering
-        if self.search_provider:
-            self.search_provider.set_user_token(user_search_token)
+    async def invoke(self, user_input: str, conversation_id: str = "", user_search_token: str | None = None) -> AsyncIterable[OrchestratorResponse]:
+        set_current_search_token(user_search_token)
+        session = self._get_session(conversation_id)
 
-        async for chunk in self.agent.run(user_input, stream=True, session=self.session):
-            print(chunk, end='', flush=True)
+        async for chunk in self.agent.run(user_input, stream=True, session=session):
             if chunk.text:
                 yield OrchestratorResponse(agent_response=chunk)
             if chunk.contents:
                 for content in chunk.contents:
                     if content.type == "function_call":
-                        print(f"\n[Tool Call] {content.call_id}{content.name}({content.arguments})")
+                        logger.info("Tool call: %s(%s)", content.name, content.arguments)
                         yield OrchestratorResponse(tool_calls=content)
                     elif content.type == "function_result":
-                        print(f"\n[Tool Result] {content.call_id}{content.result}{content.raw_representation})")
+                        logger.info("Tool result: %s", content.call_id)
                         yield OrchestratorResponse(tool_answers=content)

@@ -257,6 +257,8 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID: tenant().tenantId
       // SSO auth handler
       AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SSO__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'default_user_access_token'
+      // Search auth handler (OBO for AI Search per-user ACLs)
+      AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'search_access_token'
       // Foundry agent configuration (direct mode — agent-framework in-process)
       MS_FOUNDRY_PROJECT_ENDPOINT: msFoundryProject.outputs.endpoint
       MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME: chatOrchestratorModel.name
@@ -265,6 +267,12 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
       CONNECTIONSMAP__0__SERVICEURL: '*'
       // Azure Client ID for managed identity
       AZURE_CLIENT_ID: botUami.outputs.clientId
+      // App registration for MSAL OBO (SSO token -> search token)
+      AAD_APP_CLIENT_ID: appRegistration.outputs.aadAppId
+      // OBO connection for SDK-native token exchange (uses app reg with client secret)
+      // AAD_APP_CLIENT_SECRET is set via postprovision hook (setup_obo_secret.py)
+      CONNECTIONS__OBO_CONNECTION__SETTINGS__CLIENTID: appRegistration.outputs.aadAppId
+      CONNECTIONS__OBO_CONNECTION__SETTINGS__TENANTID: tenant().tenantId
       // AI Search (document-level access control)
       AZURE_SEARCH_ENDPOINT: 'https://${aiSearch.outputs.name}.search.windows.net'
       AZURE_SEARCH_INDEX: 'secure-docs'
@@ -500,6 +508,21 @@ module botOAuthCopilotStudio './modules/security/bot-oauth-connection.bicep' = {
     aadAppIdUri: appRegistration.outputs.aadAppIdUri
     federatedCredentialName: appRegistration.outputs.fciName
     scopes: 'https://api.powerplatform.com/CopilotStudio.Copilots.Invoke'
+    tenantId: tenantId
+    location: 'global'
+  }
+}
+
+module botOAuthSearch './modules/security/bot-oauth-connection.bicep' = {
+  name: 'deploy-bot-oauth-connection-search'
+  scope: resourceGroup
+  params: {
+    botServiceName: botService.outputs.botName
+    connectionName: 'search_access_token'
+    aadAppId: appRegistration.outputs.aadAppId
+    aadAppIdUri: appRegistration.outputs.aadAppIdUri
+    federatedCredentialName: appRegistration.outputs.fciName
+    scopes: 'https://search.azure.com/user_impersonation'
     tenantId: tenantId
     location: 'global'
   }
