@@ -71,11 +71,15 @@ class SecureSearchContextProvider(AzureAISearchContextProvider):
         results = await self._search_client.search(**search_params)
 
         result_messages: list[Message] = []
+        returned_docs: list[str] = []
         async for doc in results:
             doc_id = doc.get("id") or doc.get("@search.id")
+            doc_title = doc.get("title") or doc.get("name") or ""
             doc_text: str = self._extract_document_text(doc, doc_id=doc_id)
             if doc_text:
-                result_messages.append(Message(role="user", text=doc_text))
+                result_messages.append(Message(role="user", contents=[doc_text]))
+                returned_docs.append(f"{doc_id}:{doc_title}" if doc_title else str(doc_id))
 
         logger.info("AI Search returned %d documents", len(result_messages))
+        logger.info("DIAG search_results | query=%r | acl_filtered=%s | docs=[%s]", query, bool(search_token), ", ".join(returned_docs))
         return result_messages
