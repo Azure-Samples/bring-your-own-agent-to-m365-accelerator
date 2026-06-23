@@ -198,19 +198,6 @@ resource aadServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
   ]
 }
 
-// Service Principal for Azure Cognitive Search (first-party app)
-resource searchServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = {
-  appId: '880da380-985e-4198-81b9-e05b1cc53158'
-}
-
-// Admin consent grant: Azure Cognitive Search user_impersonation
-resource searchOAuth2Grant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = {
-  clientId: aadServicePrincipal.id
-  consentType: 'AllPrincipals'
-  resourceId: searchServicePrincipal.id
-  scope: 'user_impersonation'
-}
-
 // Outputs for other modules
 output aadAppId string = aadApplication.appId
 output aadAppObjectId string = aadApplication.id

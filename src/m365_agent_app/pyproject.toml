@@ -5,24 +5,25 @@ description = "M365 Agent Application — Bot + Multi-Agent behind APIM (v2)"
 readme = "README.md"
 requires-python = ">=3.13, <4.0.0"
 dependencies = [
-    "microsoft-agents-hosting-aiohttp==0.9.0.dev5",
-    "microsoft-agents-hosting-core==0.9.0.dev5",
-    "microsoft-agents-activity==0.9.0.dev5",
-    "microsoft-agents-authentication-msal==0.9.0.dev5",
-    "azure-identity>=1.25.1",
-    "aiohttp>=3.13.0",
-    "python-dotenv>=1.1.1",
-    "agent-framework==1.0.0rc6",
-    "agent-framework-azure-ai==1.0.0rc6",
-    "agent-framework-core==1.0.0rc6",
-    "agent-framework-foundry==1.0.0rc6",
-    "agent-framework-azure-ai-search>=1.0.0b260330",
-    "agent-framework-devui>=1.0.0b260330",
-    "azure-monitor-opentelemetry-exporter>=1.0.0b46",
-    "azure-ai-projects>=2.0.1",
-    "azure-search-documents>=11.6.0b12",
+    "microsoft-agents-hosting-aiohttp==1.1.0",
+    "microsoft-agents-hosting-core==1.1.0",
+    "microsoft-agents-activity==1.1.0",
+    "microsoft-agents-authentication-msal==1.1.0",
+    "azure-identity==1.25.3",
+    "aiohttp==3.14.1",
+    "python-dotenv==1.2.2",
+    "agent-framework-core==1.9.0",
+    "agent-framework-foundry==1.8.2",
+    "agent-framework-azure-ai-search==1.0.0b260521",
+    "agent-framework-devui==1.0.0b260528",
+    "azure-monitor-opentelemetry-exporter==1.0.0b53",
+    "azure-ai-projects==2.2.0",
+    "azure-search-documents==11.7.0b2",
     "pydantic>=2.12.4",
 ]
+
+[tool.uv]
+prerelease = "allow"
 
 [tool.setuptools]
 packages = [
@@ -36,3 +37,4 @@ packages = [
 [build-system]
 requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
+ 
