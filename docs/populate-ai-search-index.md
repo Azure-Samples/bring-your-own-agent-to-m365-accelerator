@@ -1,5 +1,26 @@
 # Populate AI Search Index
 
+## Local Development
+
+### Install dependencies
+
+```bash
+cd src
+uv sync
+```
+
+### Activate the virtual environment
+
+```bash
+source .venv/bin/activate
+```
+
+### Run the application
+
+```bash
+uv run python main.py
+```
+
 ## Per-user document access control
 
 This project uses Azure AI Search with Entra group-based document permissions. To set it up:
