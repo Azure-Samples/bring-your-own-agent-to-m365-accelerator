@@ -26,7 +26,7 @@ from microsoft_agents.hosting.core import (
 )
 
 from agents.orchestrator import OrchestratorAgent
-from utils import acquire_token, decode_token_claims, stream_agent_response
+from utils import acquire_token, decode_token_claims, send_agent_response, stream_agent_response
 
 load_dotenv()
 
@@ -38,6 +38,17 @@ DIAG = environ.get("ENABLE_DIAG_LOGS", "true").lower() == "true"
 # ⚠️ SECURITY: dumps RAW tokens to logs. Debug/sandbox ONLY. Set to false (default) for prod.
 DUMP_RAW_TOKENS = environ.get("ENABLE_RAW_TOKEN_DUMP", "false").lower() == "true"
 diag_logger = logging.getLogger("diag")
+
+# ── Run mode ──
+# AGENT_AUTH_MODE selects how the agent authenticates:
+#   "bot"       (default) — full Bot Framework JWT validation + SSO/Search OAuth.
+#                Used in Azure (prod) and in the dev-tunnel-behind-APIM local loop.
+#   "anonymous"           — SMOKE TEST ONLY: no JWT validation, no SSO, no APIM.
+#                Lets you verify the app boots and answers on its own (Foundry via
+#                `az login`). It is NOT a substitute for the real test path: there is
+#                no per-user search token, so AI Search returns public documents only.
+AUTH_MODE = environ.get("AGENT_AUTH_MODE", "bot").strip().lower()
+ANONYMOUS_MODE = AUTH_MODE == "anonymous"
 
 # ── SDK configuration ──
 
@@ -103,8 +114,13 @@ async def on_install(context: TurnContext, state: TurnState):
 
 # ── Message handler ──
 
+# In anonymous smoke-test mode there is no Bot Service to perform the SSO token
+# exchange, so register the handler without auth handlers. In bot mode the SEARCH
+# OAuth handler runs the on-behalf-of flow to obtain the per-user search token.
+_message_kwargs = {} if ANONYMOUS_MODE else {"auth_handlers": ["SEARCH"]}
 
-@AGENT_APP.activity("message", auth_handlers=["SEARCH"])
+
+@AGENT_APP.activity("message", **_message_kwargs)
 async def on_message(context: TurnContext, state: TurnState):
     user_message = context.activity.text or ""
     if not user_message.strip():
@@ -118,7 +134,8 @@ async def on_message(context: TurnContext, state: TurnState):
         channel_raw = getattr(act.channel_id, "channel_id", act.channel_id)
         channel_norm = getattr(act.channel_id, "channel", act.channel_id)
         diag_logger.info(
-            "DIAG inbound | user=%s | aadObjectId=%s | channel_raw=%s | channel_norm=%s | conversation=%s",
+            "DIAG inbound | mode=%s | user=%s | aadObjectId=%s | channel_raw=%s | channel_norm=%s | conversation=%s",
+            AUTH_MODE,
             user_name,
             getattr(act.from_property, "aad_object_id", None),
             channel_raw,
@@ -126,7 +143,11 @@ async def on_message(context: TurnContext, state: TurnState):
             act.conversation.id if act.conversation else None,
         )
 
-    search_token = await acquire_token(AGENT_APP, context, "SEARCH", user_name)
+    # Anonymous smoke-test mode: no SSO, so no per-user search token (public docs only).
+    if ANONYMOUS_MODE:
+        search_token = None
+    else:
+        search_token = await acquire_token(AGENT_APP, context, "SEARCH", user_name)
 
     if DIAG:
         if search_token:
@@ -146,9 +167,14 @@ async def on_message(context: TurnContext, state: TurnState):
             diag_logger.warning("DIAG search_token MISSING | user=%s (consent not completed?)", user_name)
 
     try:
+        agent = await get_agent()
         if context.streaming_response is not None:
-            agent = await get_agent()
             await stream_agent_response(
+                agent, context, user_message, context.activity.conversation.id, search_token
+            )
+        else:
+            # Non-streaming channels (Teams App Test Tool / Agents Playground smoke test).
+            await send_agent_response(
                 agent, context, user_message, context.activity.conversation.id, search_token
             )
     except Exception as e:

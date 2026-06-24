@@ -14,9 +14,12 @@ flowchart LR
     Local --> Foundry["Microsoft Foundry"]
 ```
 
-Why not the Teams App Test Tool / Bot Service Web Chat? Both talk to the agent directly
-and **cannot** go through APIM or perform the real SSO on-behalf-of exchange, so they
-can't reproduce the JWT / per-user ACL behaviour. We deliberately don't use them.
+Why not rely on the Teams App Test Tool / Bot Service Web Chat for real testing? Both talk
+to the agent directly and **cannot** go through APIM or perform the real SSO on-behalf-of
+exchange, so they can't reproduce the JWT / per-user ACL behaviour. The Test Tool is still
+useful as a quick **smoke test** (does the app boot and answer at all?) — see
+[Mode A](#mode-a--anonymous-smoke-test-optional) at the bottom — but it is never a
+substitute for this flow.
 
 > Run everything inside the **dev container** (it has `az`, `azd`, `uv`, `python`, `node`,
 > and — after rebuild — the `devtunnel` CLI). Bash scripts are primary; PowerShell
@@ -26,7 +29,7 @@ can't reproduce the JWT / per-user ACL behaviour. We deliberately don't use them
 
 ## Prerequisites
 
-- The dev container (rebuild it once so `devtunnel` is installed via `postCreateCommand`).
+- The dev container (it installs the `devtunnel` CLI via the devcontainer feature).
 - `az login` and `azd auth login` completed.
 - Your test user is a member of the **Entra group** that grants document access — the
   real SSO flow puts that group membership into the Search token, so AI Search returns
@@ -114,3 +117,26 @@ production values, so normal `azd provision` / `azd deploy` is unaffected.
   `curl -sL https://aka.ms/DevTunnelCliInstall | bash`.
 - **No documents returned** — confirm your test user is in the expected Entra group and
   that `azd provision` granted your `az login` identity the AI Search data-plane role.
+
+---
+
+## Mode A — anonymous smoke test (optional)
+
+A throwaway way to check the agent **boots and answers on its own**, with no Azure Bot,
+no APIM and no SSO. Useful when iterating on agent/Foundry logic. It is **not** a
+substitute for the dev-tunnel flow above: there is no per-user search token, so AI Search
+returns public documents only.
+
+```bash
+az login
+cd src
+cp .env.local.example .env          # AGENT_AUTH_MODE=anonymous + ANONYMOUS_ALLOWED=true
+#   edit MS_FOUNDRY_PROJECT_ENDPOINT (copy from `azd env get-values`)
+uv run python main.py               # terminal 1 — agent on http://localhost:3978
+../scripts/run-test-tool.sh         # terminal 2 — local chat UI
+```
+
+How it works: `AGENT_AUTH_MODE=anonymous` makes the app skip the SEARCH OAuth handler and
+pass no search token, and `CONNECTIONS__SERVICE_CONNECTION__SETTINGS__ANONYMOUS_ALLOWED=true`
+lets the SDK accept unauthenticated requests from the Test Tool. Foundry/Search use your
+`az login` identity (`BOT_CLIENT_ID` left empty).
