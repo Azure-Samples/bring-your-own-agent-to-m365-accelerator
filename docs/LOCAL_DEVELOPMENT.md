@@ -6,7 +6,7 @@ the agent code runs on your machine (in the dev container) instead of the App Se
 
 ```mermaid
 flowchart LR
-    User["Teams / M365 Copilot"] --> Bot["Dev Bot Service<br/>(single-tenant + secret)"]
+    User["Teams / M365 Copilot"] --> Bot["Local Bot Service<br/>(single-tenant + secret)"]
     Bot -->|"Bot Framework JWT"| APIM["APIM<br/>validate-jwt"]
     APIM -->|"forward /api/messages"| Tunnel["Dev tunnel<br/>(public URL)"]
     Tunnel --> Local["Local agent<br/>python main.py :3978"]
@@ -44,41 +44,38 @@ azd env new dev-tunnel
 
 ## One-time setup
 
-The dev bot is controlled by the azd variable **`DEPLOY_DEV_BOT`** (default `true`). It is
-only deployed when it is `true` **and** the dev inputs exist (`DEV_BOT_APP_ID` from step 1
-and `LOCAL_TUNNEL_ENDPOINT` from step 2), so the order below matters. Set
-`DEPLOY_DEV_BOT=false` at any time to provision the prod stack only.
+The **local bot is always deployed** alongside the prod bot — there is no toggle. Its
+single-tenant app registration is created by Bicep, and you (the deployer) are set as an
+owner of it. Bicep cannot generate an Entra client secret, and
+`Microsoft.Resources/deploymentScripts` is blocked on this subscription, so the secret is
+minted locally by `gen_local_env.sh` with your own Azure identity (`az ad app credential
+reset`) and cached in the azd env. Only the dev tunnel URL has to be created before
+provisioning, so it can be wired as the local APIM backend.
 
 ```bash
-# 0. (optional) the dev bot is enabled by default; this just makes it explicit.
-azd env set DEPLOY_DEV_BOT true
-
-# 1. Create the single-tenant dev bot app + secret (writes DEV_BOT_APP_ID to the azd env).
-#    Prod uses a managed identity, which a laptop cannot use to call the Bot Connector,
-#    so the local loop needs an app + secret instead.
-./scripts/provision_dev_bot.sh
-
-# 2. Create a PERSISTENT dev tunnel for port 3978 and host it.
+# 1. Create a PERSISTENT dev tunnel for port 3978 and host it.
 #    Writes LOCAL_TUNNEL_ENDPOINT to the azd env. Leave it running.
 ./scripts/devtunnel.sh
 
-# 3. In a second terminal, provision Azure. Because DEPLOY_DEV_BOT=true and both inputs
-#    are now set, this deploys the dev bot 'bot-dev-<suffix>' next to the prod bot, adds
-#    the 'bot-dev' APIM API (backend = tunnel), and creates the dev SSO + Search OAuth
-#    connections. The prod bot is left untouched.
+# 2. In a second terminal, provision Azure. This deploys the local bot
+#    'bot-local-<suffix>' next to the prod bot, creates its app registration (you are set
+#    as owner), adds the 'bot-local' APIM API (backend = tunnel), and creates the local
+#    SSO + Search OAuth connections. The prod bot is left untouched.
 azd provision
 
-# 4. Generate src/.env for the local run (dev bot secret + Foundry/Search from outputs).
+# 3. Generate src/.env for the local run. Mints the local bot client secret with your az
+#    identity (cached in the azd env) and pulls Foundry/Search values from the outputs.
 ./scripts/gen_local_env.sh
 
-# 5. Build and sideload the app package (BOT_ID points at the dev bot when it is deployed).
+# 4. Build and sideload the app package (BOT_ID points at the local bot).
 ./scripts/build_manifest.sh
 #    Upload appPackage/build/appPackage.zip in Teams
 #    (Apps > Manage your apps > Upload a custom app) or M365 Copilot.
 ```
 
-> To provision **without** any dev resources (prod only): `azd env set DEPLOY_DEV_BOT false`
-> then `azd provision`. You can flip it back to `true` later and re-provision.
+> If you provision **before** creating the tunnel, `LOCAL_TUNNEL_ENDPOINT` defaults to the
+> `https://localhost` placeholder and the local APIM backend won't reach your machine.
+> Run `./scripts/devtunnel.sh` first, then `azd provision` (or re-provision after).
 
 ---
 
@@ -101,36 +98,43 @@ in the morning if the tunnel was recreated).
 
 ## How it works (infra)
 
-The prod bot is **never modified**. A separate dev bot is deployed alongside it, gated by
-the `deployDevBot` parameter (azd var `DEPLOY_DEV_BOT`, default `true`). The dev bot is
-only created when it is enabled **and** its inputs exist, i.e.
-`DEPLOY_DEV_BOT=true` + `DEV_BOT_APP_ID` (from `provision_dev_bot.sh`) +
-`LOCAL_TUNNEL_ENDPOINT` (from `devtunnel.sh`). Set `DEPLOY_DEV_BOT=false` to skip all dev
-resources.
+The prod bot is **never modified**. A separate local bot is always deployed alongside it —
+there is no conditional toggle. Its single-tenant app registration is created by
+`modules/security/local-bot-app-registration.bicep`, with the deployer set as an owner.
+Bicep cannot generate an Entra client secret (secrets are write-only) and
+`Microsoft.Resources/deploymentScripts` is blocked on this subscription, so the secret is
+minted locally by `scripts/gen_local_env.sh` (`az ad app credential reset`) and cached in
+the azd env (`LOCAL_BOT_APP_SECRET`). The only external input is `LOCAL_TUNNEL_ENDPOINT`
+(from `devtunnel.sh`), used as the local APIM backend.
 
-| Concern | Prod bot (`bot-<suffix>`) | Dev bot (`bot-dev-<suffix>`) |
+| Concern | Prod bot (`bot-<suffix>`) | Local bot (`bot-local-<suffix>`) |
 | --- | --- | --- |
-| Bicep module | `modules/bot/bot-service.bicep` | `modules/bot/bot-service-dev.bicep` |
-| Identity | UserAssignedMSI | SingleTenant app + secret (`DEV_BOT_APP_ID`) |
-| APIM API / path | `bot-proxy` `/bot` | `bot-proxy-dev` `/bot-dev` |
+| Bicep module | `modules/bot/bot-service.bicep` | `modules/bot/bot-service-local.bicep` |
+| Identity | UserAssignedMSI | SingleTenant app + secret (`LOCAL_BOT_ID`) |
+| Secret source | n/a (managed identity) | minted locally by `gen_local_env.sh`, cached in azd env |
+| APIM API / path | `bot-proxy` `/bot` | `bot-proxy-local` `/bot-local` |
 | APIM backend | App Service URI | `LOCAL_TUNNEL_ENDPOINT` |
-| Bot Framework JWT audience | MSI client id | dev bot app id |
+| Bot Framework JWT audience | MSI client id | local bot app id |
 | Outbound Bot Connector auth | managed identity | client secret (local `.env`) |
-| SSO / Search OAuth connections | on prod bot | on dev bot, same SSO app + FIC (the FIC is bound to the connection unique id, not the bot) |
+| SSO / Search OAuth connections | on prod bot | on local bot, same SSO app + FIC (the FIC is bound to the connection unique id, not the bot) |
 
 Both APIM APIs live on the same APIM instance (reusable `modules/apim/apim-bot-api.bicep`),
-each validating its own audience and forwarding to its own backend. Setting
-`DEPLOY_DEV_BOT=false` (or not running the dev setup scripts) leaves only the prod
-topology, so a normal `azd provision` / `azd deploy` is unaffected.
+each validating its own audience and forwarding to its own backend. The local topology is
+purely additive — the prod bot, its APIM API and OAuth connections are untouched, so a
+normal `azd provision` / `azd deploy` of the prod stack is unaffected.
 
 ---
 
 ## Troubleshooting
 
-- **401 at APIM** — the Bot Framework token audience must equal the dev bot app id. Make
-  sure you ran `azd provision` *after* `provision_dev_bot.sh` and `devtunnel.sh`.
-- **Bot replies never arrive** — the local `.env` `CLIENTSECRET` is stale. Re-run
-  `./scripts/provision_dev_bot.sh` then `./scripts/gen_local_env.sh`.
+- **401 at APIM** — the Bot Framework token audience must equal the local bot app id. Make
+  sure you ran `azd provision` *after* `devtunnel.sh` so the tunnel URL is the APIM backend.
+- **Bot replies never arrive** — the local `.env` `CLIENTSECRET` is stale or was rotated.
+  Rotate it and regenerate `.env`:
+  `azd env set LOCAL_BOT_APP_SECRET '' && ./scripts/gen_local_env.sh`, then restart the agent.
+- **`gen_local_env.sh` can't create the secret** — confirm you are `az login`ed as an
+  owner of the local bot app (the deployer is set as owner during `azd provision`) or as an
+  Application Administrator in the tenant.
 - **`devtunnel: command not found`** — rebuild the dev container, or install manually:
   `curl -sL https://aka.ms/DevTunnelCliInstall | bash`.
 - **No documents returned** — confirm your test user is in the expected Entra group and

@@ -10,7 +10,7 @@ param aadAppName string
 @description('BotID this should match the Microsoft App ID in the Azure Bot Service Configuration')
 param botId string
 
-@description('Optional. Additional bot app id (the dev bot) to also expose as an identifier URI for SSO.')
+@description('Optional. Additional bot app id (the local bot) to also expose as an identifier URI for SSO.')
 param additionalBotId string = ''
 
 @description('Tenant ID where the application will be registered')
@@ -208,7 +208,7 @@ resource aadServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
 output aadAppId string = aadApplication.appId
 output aadAppObjectId string = aadApplication.id
 output aadAppIdUri string = 'api://botid-${botId}'
-output devAadAppIdUri string = empty(additionalBotId) ? '' : 'api://botid-${additionalBotId}'
+output localAadAppIdUri string = empty(additionalBotId) ? '' : 'api://botid-${additionalBotId}'
 output servicePrincipalId string = aadServicePrincipal.id
 output servicePrincipalObjectId string = aadServicePrincipal.id
 output fciName string = federatedCredential.name

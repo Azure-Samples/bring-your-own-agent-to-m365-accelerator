@@ -1,6 +1,6 @@
 // One bot API on an existing APIM service: validates the Bot Framework JWT (audience =
 // botAppId) and forwards /api/messages to the given backend. Used once for the prod
-// bot (backend = App Service) and once for the dev bot (backend = dev tunnel).
+// bot (backend = App Service) and once for the local bot (backend = dev tunnel).
 
 param apimName string
 param apiName string

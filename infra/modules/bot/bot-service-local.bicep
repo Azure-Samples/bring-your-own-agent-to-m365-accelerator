@@ -1,4 +1,4 @@
-// Dev bot service for the dev-tunnel local loop.
+// Local bot service for the dev-tunnel local loop.
 // Single-tenant app + secret (the secret is held only by the locally-running process,
 // since a managed identity cannot be used from a laptop). Follows the same naming and
 // shape as the prod bot (modules/bot/bot-service.bicep).
@@ -9,7 +9,7 @@ param messagingEndpoint string
 param logAnalyticsId string
 param appInsightsInstrumentationKey string
 
-@description('Client (app) ID of the single-tenant dev bot app registration.')
+@description('Client (app) ID of the single-tenant local bot app registration.')
 param botAppId string
 
 resource bot 'Microsoft.BotService/botServices@2022-09-15' = {

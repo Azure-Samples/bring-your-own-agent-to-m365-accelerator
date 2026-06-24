@@ -65,21 +65,14 @@ param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
 ])
 param apimSku string = 'Consumption'
 
-// ── Dev bot (local development behind APIM) ──
-// A separate single-tenant bot ('bot-dev-<suffix>') exposed through the dev tunnel as
-// the APIM backend, deployed alongside the prod bot. The prod bot is never altered.
-@description('Deploy the dev bot service (single-tenant, dev-tunnel backed) alongside the prod bot. "true" (default) or "false".')
-param deployDevBot string = 'true'
-
-@description('Optional. Public dev tunnel base URL (https://...devtunnels.ms) used as the dev APIM backend. Set by scripts/devtunnel.sh.')
-param localTunnelEndpoint string = ''
-
-@description('Optional. Client (app) ID of the single-tenant dev bot app. Set by scripts/provision_dev_bot.sh.')
-param devBotAppId string = ''
-
-// The dev bot is deployed only when explicitly enabled AND its inputs are available
-// (run scripts/provision_dev_bot.sh + scripts/devtunnel.sh before azd provision).
-var deployDev = toLower(deployDevBot) == 'true' && !empty(devBotAppId) && !empty(localTunnelEndpoint)
+// ── Local bot (local development behind APIM) ──
+// A separate single-tenant bot ('bot-local-<suffix>') exposed through the dev tunnel as
+// the APIM backend, deployed alongside the prod bot in all cases. The prod bot uses a
+// managed identity; the local bot uses its own app registration + client secret (a laptop
+// cannot use a managed identity to call the Bot Connector). The app registration and its
+// secret (stored in Key Vault) are created entirely in Bicep — no provisioning scripts.
+@description('Public dev tunnel base URL (https://...devtunnels.ms) used as the local APIM backend. Set by scripts/devtunnel.sh; defaults to a placeholder until the tunnel is created.')
+param localTunnelEndpoint string = 'https://localhost'
 
 
 var resourceToken = toLower(uniqueString(subscription().id, name, environment, application))
@@ -297,15 +290,15 @@ module botService './modules/bot/bot-service.bicep' = {
   }
 }
 
-// Dev bot (single-tenant), only when enabled. Messaging endpoint -> dev APIM API -> tunnel.
-module botServiceDev './modules/bot/bot-service-dev.bicep' = if (deployDev) {
-  name: 'botServiceDev'
+// Local bot (single-tenant). Messaging endpoint -> local APIM API -> dev tunnel.
+module botServiceLocal './modules/bot/bot-service-local.bicep' = {
+  name: 'botServiceLocal'
   scope: resourceGroup
   params: {
-    botName: 'bot-dev-${resourceSuffixKebabcase}'
-    botDisplayName: 'Orchestrator Agent (dev)'
-    botAppId: devBotAppId
-    messagingEndpoint: botApiDev.?outputs.messagingEndpoint ?? ''
+    botName: 'bot-local-${resourceSuffixKebabcase}'
+    botDisplayName: 'Orchestrator Agent (local)'
+    botAppId: localBotAppRegistration.outputs.appId
+    messagingEndpoint: botApiLocal.outputs.messagingEndpoint
     logAnalyticsId: logAnalytics.outputs.id
     appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
   }
@@ -404,6 +397,21 @@ module roles './modules/security/roles.bicep' = {
   }
 }
 
+// ── Local bot identity (channel app registration) ──
+// Single-tenant app registration that is the local bot's channel identity. The deployer
+// is set as an owner so the developer can mint a client secret locally (see
+// scripts/gen_local_env.sh). Bicep cannot generate an Entra client secret itself, and
+// Microsoft.Resources/deploymentScripts is disallowed on this subscription, so the secret
+// is created with `az ad app credential reset` at local-env generation time.
+module localBotAppRegistration './modules/security/local-bot-app-registration.bicep' = {
+  name: 'localBotAppRegistration'
+  scope: resourceGroup
+  params: {
+    appName: localBotAppRegistrationName
+    ownerPrincipalId: deployer().objectId
+  }
+}
+
 // Create App Registration with all required parameters
 module appRegistration './modules/security/app-registration.bicep' = {
   name: 'deploy-app-registration'
@@ -411,7 +419,7 @@ module appRegistration './modules/security/app-registration.bicep' = {
   params: {
     aadAppName: 'app-reg-${resourceSuffixKebabcase}'
     botId: botUami.outputs.clientId
-    additionalBotId: deployDev ? devBotAppId : ''
+    additionalBotId: localBotAppRegistration.outputs.appId
     tenantId: tenantId
     tenantIdBase64Encoded: tenantIdBase64Encoded
   }
@@ -443,15 +451,15 @@ module botApiProd './modules/apim/apim-bot-api.bicep' = {
   }
 }
 
-// Dev bot API: validate-jwt (audience = dev bot) -> dev tunnel backend. Only when enabled.
-module botApiDev './modules/apim/apim-bot-api.bicep' = if (deployDev) {
-  name: 'botApiDev'
+// Local bot API: validate-jwt (audience = local bot) -> dev tunnel backend.
+module botApiLocal './modules/apim/apim-bot-api.bicep' = {
+  name: 'botApiLocal'
   scope: resourceGroup
   params: {
     apimName: apiManagement.outputs.name
-    apiName: 'bot-proxy-dev'
-    apiPath: 'bot-dev'
-    botAppId: devBotAppId
+    apiName: 'bot-proxy-local'
+    apiPath: 'bot-local'
+    botAppId: localBotAppRegistration.outputs.appId
     botBackendUrl: localTunnelEndpoint
   }
 }
@@ -517,32 +525,32 @@ module botOAuthSearch './modules/security/bot-oauth-connection.bicep' = {
   }
 }
 
-// Dev bot OAuth connections (SSO + Search). Same SSO app + federated credential as prod
+// Local bot OAuth connections (SSO + Search). Same SSO app + federated credential as prod
 // (the FIC is bound to the connection's unique id, not to the bot identity), but the
-// token-exchange URI targets the dev bot (api://botid-<devBotAppId>).
-module botOAuthConnectionDev './modules/security/bot-oauth-connection.bicep' = if (deployDev) {
-  name: 'deploy-bot-oauth-connection-user-dev'
+// token-exchange URI targets the local bot (api://botid-<localBotAppId>).
+module botOAuthConnectionLocal './modules/security/bot-oauth-connection.bicep' = {
+  name: 'deploy-bot-oauth-connection-user-local'
   scope: resourceGroup
   params: {
-    botServiceName: botServiceDev.?outputs.botName ?? ''
+    botServiceName: botServiceLocal.outputs.botName
     connectionName: 'default_user_access_token'
     aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.devAadAppIdUri
+    aadAppIdUri: appRegistration.outputs.localAadAppIdUri
     federatedCredentialName: appRegistration.outputs.fciName
-    scopes: '${appRegistration.outputs.devAadAppIdUri}/access_as_user'
+    scopes: '${appRegistration.outputs.localAadAppIdUri}/access_as_user'
     tenantId: tenantId
     location: 'global'
   }
 }
 
-module botOAuthSearchDev './modules/security/bot-oauth-connection.bicep' = if (deployDev) {
-  name: 'deploy-bot-oauth-connection-search-dev'
+module botOAuthSearchLocal './modules/security/bot-oauth-connection.bicep' = {
+  name: 'deploy-bot-oauth-connection-search-local'
   scope: resourceGroup
   params: {
-    botServiceName: botServiceDev.?outputs.botName ?? ''
+    botServiceName: botServiceLocal.outputs.botName
     connectionName: 'search_access_token'
     aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.devAadAppIdUri
+    aadAppIdUri: appRegistration.outputs.localAadAppIdUri
     federatedCredentialName: appRegistration.outputs.fciName
     scopes: 'https://search.azure.com/user_impersonation'
     tenantId: tenantId
@@ -560,13 +568,12 @@ output BOT_SERVICE_NAME string = botService.outputs.botName
 output BOT_ENDPOINT string = botApiProd.outputs.messagingEndpoint
 output BOT_DOMAIN string = replace(teamsAgentAppService.outputs.uri, 'https://', '')
 
-// Dev bot outputs (empty when the dev bot is not deployed)
-output DEPLOY_DEV_BOT bool = deployDev
-output DEV_BOT_ID string = deployDev ? devBotAppId : ''
-output DEV_BOT_SERVICE_NAME string = botServiceDev.?outputs.botName ?? ''
-output DEV_BOT_ENDPOINT string = botApiDev.?outputs.messagingEndpoint ?? ''
-output DEV_BOT_DOMAIN string = deployDev ? replace(localTunnelEndpoint, 'https://', '') : ''
-output DEV_BOT_AAD_APP_ID_URI string = deployDev ? appRegistration.outputs.devAadAppIdUri : ''
+// Local bot outputs (always deployed)
+output LOCAL_BOT_ID string = localBotAppRegistration.outputs.appId
+output LOCAL_BOT_SERVICE_NAME string = botServiceLocal.outputs.botName
+output LOCAL_BOT_ENDPOINT string = botApiLocal.outputs.messagingEndpoint
+output LOCAL_BOT_DOMAIN string = replace(localTunnelEndpoint, 'https://', '')
+output LOCAL_BOT_AAD_APP_ID_URI string = appRegistration.outputs.localAadAppIdUri
 
 
 // App Registration outputs
