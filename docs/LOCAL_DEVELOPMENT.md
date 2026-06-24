@@ -89,20 +89,27 @@ in the morning if the tunnel was recreated).
 
 ## How it works (infra)
 
-`infra/main.bicep` keeps the production topology unchanged by default. When the azd env
-sets `LOCAL_TUNNEL_ENDPOINT` (+ `DEV_BOT_APP_ID`), it switches into dev-tunnel mode:
+The prod bot is **never modified**. A separate dev bot is deployed alongside it, gated by
+the `deployDevBot` parameter (azd var `DEPLOY_DEV_BOT`, default `true`). The dev bot is
+only created when it is enabled **and** its inputs exist, i.e.
+`DEPLOY_DEV_BOT=true` + `DEV_BOT_APP_ID` (from `provision_dev_bot.sh`) +
+`LOCAL_TUNNEL_ENDPOINT` (from `devtunnel.sh`). Set `DEPLOY_DEV_BOT=false` to skip all dev
+resources.
 
-| Concern | Production | Dev tunnel |
+| Concern | Prod bot (`bot-<suffix>`) | Dev bot (`bot-dev-<suffix>`) |
 | --- | --- | --- |
-| APIM backend (`botBackendUrl`) | App Service URI | `LOCAL_TUNNEL_ENDPOINT` |
-| Bot Service identity | UserAssignedMSI | SingleTenant app + secret (`DEV_BOT_APP_ID`) |
+| Bicep module | `modules/bot/bot-service.bicep` | `modules/bot/bot-service-dev.bicep` |
+| Identity | UserAssignedMSI | SingleTenant app + secret (`DEV_BOT_APP_ID`) |
+| APIM API / path | `bot-proxy` `/bot` | `bot-proxy-dev` `/bot-dev` |
+| APIM backend | App Service URI | `LOCAL_TUNNEL_ENDPOINT` |
 | Bot Framework JWT audience | MSI client id | dev bot app id |
-| `BOT_ID` / `api://botid-…` | MSI client id | dev bot app id |
 | Outbound Bot Connector auth | managed identity | client secret (local `.env`) |
-| SSO / Search OAuth connections | FIC on SSO app | identical (FIC is bound to the OAuth connection, not the bot identity) |
+| SSO / Search OAuth connections | on prod bot | on dev bot, same SSO app + FIC (the FIC is bound to the connection unique id, not the bot) |
 
-Leaving `LOCAL_TUNNEL_ENDPOINT` empty (the default) reverts every one of these to the
-production values, so normal `azd provision` / `azd deploy` is unaffected.
+Both APIM APIs live on the same APIM instance (reusable `modules/apim/apim-bot-api.bicep`),
+each validating its own audience and forwarding to its own backend. Setting
+`DEPLOY_DEV_BOT=false` (or not running the dev setup scripts) leaves only the prod
+topology, so a normal `azd provision` / `azd deploy` is unaffected.
 
 ---
 

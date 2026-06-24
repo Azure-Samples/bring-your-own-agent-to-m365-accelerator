@@ -1,13 +1,16 @@
+// Dev bot service for the dev-tunnel local loop.
+// Single-tenant app + secret (the secret is held only by the locally-running process,
+// since a managed identity cannot be used from a laptop). Follows the same naming and
+// shape as the prod bot (modules/bot/bot-service.bicep).
+
 param botName string
 param botDisplayName string
-param botIdentityName string
 param messagingEndpoint string
 param logAnalyticsId string
 param appInsightsInstrumentationKey string
 
-resource botIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
-  name: botIdentityName
-}
+@description('Client (app) ID of the single-tenant dev bot app registration.')
+param botAppId string
 
 resource bot 'Microsoft.BotService/botServices@2022-09-15' = {
   name: botName
@@ -15,10 +18,9 @@ resource bot 'Microsoft.BotService/botServices@2022-09-15' = {
   kind: 'sdk'
   properties: {
     displayName: botDisplayName
-    msaAppType: 'UserAssignedMSI'
-    msaAppMSIResourceId: botIdentity.id
-    msaAppId: botIdentity.properties.clientId
-    msaAppTenantId: botIdentity.properties.tenantId
+    msaAppType: 'SingleTenant'
+    msaAppId: botAppId
+    msaAppTenantId: tenant().tenantId
     endpoint: messagingEndpoint
     developerAppInsightKey: appInsightsInstrumentationKey
   }

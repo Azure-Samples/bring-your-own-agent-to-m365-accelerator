@@ -65,22 +65,21 @@ param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
 ])
 param apimSku string = 'Consumption'
 
-// ── Dev-tunnel (local development behind APIM) ──
-// When localTunnelEndpoint is set, the agent runs locally and is exposed through a
-// dev tunnel; APIM forwards Bot Framework traffic to the tunnel instead of the App
-// Service, and the Bot Service uses a single-tenant app + secret (held only by the
-// local process) instead of the managed identity. Leave empty for normal Azure deploys.
-@description('Optional. Public dev tunnel base URL (e.g. https://abc-3978.euw.devtunnels.ms) used as the APIM backend for local development. Empty = use the deployed App Service.')
+// ── Dev bot (local development behind APIM) ──
+// A separate single-tenant bot ('bot-dev-<suffix>') exposed through the dev tunnel as
+// the APIM backend, deployed alongside the prod bot. The prod bot is never altered.
+@description('Deploy the dev bot service (single-tenant, dev-tunnel backed) alongside the prod bot. "true" (default) or "false".')
+param deployDevBot string = 'true'
+
+@description('Optional. Public dev tunnel base URL (https://...devtunnels.ms) used as the dev APIM backend. Set by scripts/devtunnel.sh.')
 param localTunnelEndpoint string = ''
 
-@description('Optional. Client (app) ID of the single-tenant dev bot app registration used for the dev-tunnel loop. Required when localTunnelEndpoint is set.')
+@description('Optional. Client (app) ID of the single-tenant dev bot app. Set by scripts/provision_dev_bot.sh.')
 param devBotAppId string = ''
 
-var devTunnelMode = !empty(localTunnelEndpoint)
-// Bot Framework JWT audience validated by APIM and the messaging identity of the bot.
-var effectiveBotAppId = devTunnelMode ? devBotAppId : botUami.outputs.clientId
-// APIM forwards to the tunnel in dev mode, otherwise to the App Service.
-var apimBackendUrl = devTunnelMode ? localTunnelEndpoint : teamsAgentAppService.outputs.uri
+// The dev bot is deployed only when explicitly enabled AND its inputs are available
+// (run scripts/provision_dev_bot.sh + scripts/devtunnel.sh before azd provision).
+var deployDev = toLower(deployDevBot) == 'true' && !empty(devBotAppId) && !empty(localTunnelEndpoint)
 
 
 var resourceToken = toLower(uniqueString(subscription().id, name, environment, application))
@@ -292,13 +291,23 @@ module botService './modules/bot/bot-service.bicep' = {
     botName: 'bot-${resourceSuffixKebabcase}'
     botDisplayName: 'Orchestrator Agent'
     botIdentityName: botUami.outputs.name
-    messagingEndpoint: apiManagement.outputs.botMessagingEndpoint
+    messagingEndpoint: botApiProd.outputs.messagingEndpoint
     logAnalyticsId: logAnalytics.outputs.id
     appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
-    // Dev-tunnel loop: use a single-tenant app + secret instead of the managed identity,
-    // so the locally-running process can authenticate outbound calls to the Bot Connector.
-    useSingleTenantApp: devTunnelMode
-    singleTenantAppId: devBotAppId
+  }
+}
+
+// Dev bot (single-tenant), only when enabled. Messaging endpoint -> dev APIM API -> tunnel.
+module botServiceDev './modules/bot/bot-service-dev.bicep' = if (deployDev) {
+  name: 'botServiceDev'
+  scope: resourceGroup
+  params: {
+    botName: 'bot-dev-${resourceSuffixKebabcase}'
+    botDisplayName: 'Orchestrator Agent (dev)'
+    botAppId: devBotAppId
+    messagingEndpoint: botApiDev.?outputs.messagingEndpoint ?? ''
+    logAnalyticsId: logAnalytics.outputs.id
+    appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
   }
 }
 
@@ -401,7 +410,8 @@ module appRegistration './modules/security/app-registration.bicep' = {
   scope: resourceGroup
   params: {
     aadAppName: 'app-reg-${resourceSuffixKebabcase}'
-    botId: effectiveBotAppId
+    botId: botUami.outputs.clientId
+    additionalBotId: deployDev ? devBotAppId : ''
     tenantId: tenantId
     tenantIdBase64Encoded: tenantIdBase64Encoded
   }
@@ -417,8 +427,32 @@ module apiManagement './modules/apim/apim.bicep' = {
     publisherEmail: apimPublisherEmail
     publisherName: 'm365-copilot-pro-code-approach'
     sku: apimSku
-    botAppId: effectiveBotAppId
-    botBackendUrl: apimBackendUrl
+  }
+}
+
+// Prod bot API: validate-jwt (audience = prod bot MSI) -> App Service backend.
+module botApiProd './modules/apim/apim-bot-api.bicep' = {
+  name: 'botApiProd'
+  scope: resourceGroup
+  params: {
+    apimName: apiManagement.outputs.name
+    apiName: 'bot-proxy'
+    apiPath: 'bot'
+    botAppId: botUami.outputs.clientId
+    botBackendUrl: teamsAgentAppService.outputs.uri
+  }
+}
+
+// Dev bot API: validate-jwt (audience = dev bot) -> dev tunnel backend. Only when enabled.
+module botApiDev './modules/apim/apim-bot-api.bicep' = if (deployDev) {
+  name: 'botApiDev'
+  scope: resourceGroup
+  params: {
+    apimName: apiManagement.outputs.name
+    apiName: 'bot-proxy-dev'
+    apiPath: 'bot-dev'
+    botAppId: devBotAppId
+    botBackendUrl: localTunnelEndpoint
   }
 }
 
@@ -483,15 +517,56 @@ module botOAuthSearch './modules/security/bot-oauth-connection.bicep' = {
   }
 }
 
+// Dev bot OAuth connections (SSO + Search). Same SSO app + federated credential as prod
+// (the FIC is bound to the connection's unique id, not to the bot identity), but the
+// token-exchange URI targets the dev bot (api://botid-<devBotAppId>).
+module botOAuthConnectionDev './modules/security/bot-oauth-connection.bicep' = if (deployDev) {
+  name: 'deploy-bot-oauth-connection-user-dev'
+  scope: resourceGroup
+  params: {
+    botServiceName: botServiceDev.?outputs.botName ?? ''
+    connectionName: 'default_user_access_token'
+    aadAppId: appRegistration.outputs.aadAppId
+    aadAppIdUri: appRegistration.outputs.devAadAppIdUri
+    federatedCredentialName: appRegistration.outputs.fciName
+    scopes: '${appRegistration.outputs.devAadAppIdUri}/access_as_user'
+    tenantId: tenantId
+    location: 'global'
+  }
+}
+
+module botOAuthSearchDev './modules/security/bot-oauth-connection.bicep' = if (deployDev) {
+  name: 'deploy-bot-oauth-connection-search-dev'
+  scope: resourceGroup
+  params: {
+    botServiceName: botServiceDev.?outputs.botName ?? ''
+    connectionName: 'search_access_token'
+    aadAppId: appRegistration.outputs.aadAppId
+    aadAppIdUri: appRegistration.outputs.devAadAppIdUri
+    federatedCredentialName: appRegistration.outputs.fciName
+    scopes: 'https://search.azure.com/user_impersonation'
+    tenantId: tenantId
+    location: 'global'
+  }
+}
+
 output AZURE_RESOURCE_GROUP string = resourceGroup.name
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenantId
 
-// Bot Service outputs
-output BOT_ID string = effectiveBotAppId
+// Bot Service outputs (prod)
+output BOT_ID string = botUami.outputs.clientId
 output BOT_SERVICE_NAME string = botService.outputs.botName
-output BOT_ENDPOINT string = apiManagement.outputs.botMessagingEndpoint
+output BOT_ENDPOINT string = botApiProd.outputs.messagingEndpoint
 output BOT_DOMAIN string = replace(teamsAgentAppService.outputs.uri, 'https://', '')
+
+// Dev bot outputs (empty when the dev bot is not deployed)
+output DEPLOY_DEV_BOT bool = deployDev
+output DEV_BOT_ID string = deployDev ? devBotAppId : ''
+output DEV_BOT_SERVICE_NAME string = botServiceDev.?outputs.botName ?? ''
+output DEV_BOT_ENDPOINT string = botApiDev.?outputs.messagingEndpoint ?? ''
+output DEV_BOT_DOMAIN string = deployDev ? replace(localTunnelEndpoint, 'https://', '') : ''
+output DEV_BOT_AAD_APP_ID_URI string = deployDev ? appRegistration.outputs.devAadAppIdUri : ''
 
 
 // App Registration outputs
@@ -509,7 +584,3 @@ output AZURE_SEARCH_INDEX string = 'secure-docs'
 output FOUNDRY_PROJECT_ENDPOINT string = msFoundryProject.outputs.endpoint
 output MS_FOUNDRY_RESOURCE_ENDPOINT string = msFoundry.outputs.aoaiEndpoint
 output MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME string = chatOrchestratorModel.name
-
-// Dev-tunnel (local development) outputs
-output LOCAL_TUNNEL_MODE bool = devTunnelMode
-output APIM_BACKEND_URL string = apimBackendUrl

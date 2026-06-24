@@ -12,10 +12,13 @@
       "value": "${AZURE_TENANT_ID_BASE64_ENCODED}"
     },
     "localTunnelEndpoint": {
-      "value": "${LOCAL_TUNNEL_ENDPOINT}"
+      "value": "${LOCAL_TUNNEL_ENDPOINT=}"
     },
     "devBotAppId": {
-      "value": "${DEV_BOT_APP_ID}"
+      "value": "${DEV_BOT_APP_ID=}"
+    },
+    "deployDevBot": {
+      "value": "${DEPLOY_DEV_BOT=true}"
     }
   }
 }
