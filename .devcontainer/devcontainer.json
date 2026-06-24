@@ -42,5 +42,5 @@
     }
   },
   "containerUser": "vscode",
-  "postCreateCommand": "npm install -g @microsoft/teams-app-test-tool"
+  "postCreateCommand": "cd src && uv sync"
 }

@@ -52,7 +52,7 @@ AGENT_APP = AgentApplication[TurnState](
 )
 
 credential = DefaultAzureCredential(
-    managed_identity_client_id=environ.get("BOT_CLIENT_ID")
+    managed_identity_client_id=environ.get("BOT_CLIENT_ID") or None
 )
 
 # ── Lazy agent initialization ──

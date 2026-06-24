@@ -82,6 +82,8 @@ Follow the steps below to set up and run the project locally, deploy it to Azure
 2) [Populate the Azure AI Search index with sample documents](docs/populate-ai-search-index.md)
 3) [Deploy to Microsoft Teams and M365 Copilot](docs/deploy-to-teams-and-copilot-m365.md)
 
+For local development and debugging through the **full production flow** (dev Bot Service → APIM → dev tunnel → local agent → real SSO + per-user ACLs), see [Local development — dev tunnel behind APIM](docs/LOCAL_DEVELOPMENT.md).
+
 
 ## References
 
