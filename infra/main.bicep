@@ -44,7 +44,7 @@ param msFoundryLocation string = 'swedencentral'
 @description('The orchestrator model to be used for chat completions')
 param chatOrchestratorModel object = {
   name: 'gpt-5.4'
-  capacity: 500
+  capacity: 100
   version: '2026-03-05'
 }
 
@@ -63,7 +63,7 @@ param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
   'Developer'
   'BasicV2'
 ])
-param apimSku string = 'Consumption'
+param apimSku string = 'BasicV2'
 
 
 var resourceToken = toLower(uniqueString(subscription().id, name, environment, application))
