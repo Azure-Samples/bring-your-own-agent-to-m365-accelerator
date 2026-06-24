@@ -16,16 +16,16 @@ sequenceDiagram
     end
 
     box "Microsoft 365 / Teams"
-        participant M as Microsoft 365 Copilot / Microsoft Teams
+        participant M as Microsoft 365 Copilot & Teams
     end
 
     box "Azure Bot Platform"
         participant B as Azure Bot Service
-        participant T as Bot Framework Token Service
+        participant T as Bot Token Service
     end
 
     box "Custom Engine Agent - Azure Resource Group"
-        participant APIM as Azure API Management
+        participant AP as Azure APIM (Optional)
         participant P as App Service / Agent App (M365 Agents SDK)
     end
 
@@ -38,9 +38,9 @@ sequenceDiagram
     %% Inbound Message Flow
     U->>M: User prompt<br/>(e.g., "Create a report")
     M->>B: Send activity
-    B->>APIM: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
-    APIM->>APIM: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
-    APIM->>P: Forward activity to /api/messages
+    B->>AP: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
+    AP->>AP: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
+    AP->>P: Forward activity to /api/messages
 
     %% Search Token Exchange Flow
     rect rgb(255, 245, 220)
