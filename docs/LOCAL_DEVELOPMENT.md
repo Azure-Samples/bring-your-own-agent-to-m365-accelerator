@@ -66,11 +66,6 @@ azd provision
 # 3. Generate src/.env for the local run. Mints the local bot client secret with your az
 #    identity (cached in the azd env) and pulls Foundry/Search values from the outputs.
 ./scripts/gen_local_env.sh
-
-# 4. Build and sideload the app package (BOT_ID points at the local bot).
-./scripts/build_manifest.sh
-#    Upload appPackage/build/appPackage.zip in Teams
-#    (Apps > Manage your apps > Upload a custom app) or M365 Copilot.
 ```
 
 > If you provision **before** creating the tunnel, `LOCAL_TUNNEL_ENDPOINT` defaults to the
