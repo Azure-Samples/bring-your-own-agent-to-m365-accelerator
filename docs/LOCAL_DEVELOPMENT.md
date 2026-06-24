@@ -22,8 +22,7 @@ useful as a quick **smoke test** (does the app boot and answer at all?) — see
 substitute for this flow.
 
 > Run everything inside the **dev container** (it has `az`, `azd`, `uv`, `python`, `node`,
-> and — after rebuild — the `devtunnel` CLI). Bash scripts are primary; PowerShell
-> equivalents (`.ps1`) are provided as a backup.
+> and the `devtunnel` CLI). All helper scripts are bash.
 
 ---
 
@@ -65,7 +64,7 @@ azd provision
 
 # 5. Build and sideload the app package (BOT_ID points at the dev bot).
 ./scripts/build_manifest.sh
-#    Upload appPackage/build/appPackage.dev-tunnel.zip in Teams
+#    Upload appPackage/build/appPackage.zip in Teams
 #    (Apps > Manage your apps > Upload a custom app) or M365 Copilot.
 ```
 
