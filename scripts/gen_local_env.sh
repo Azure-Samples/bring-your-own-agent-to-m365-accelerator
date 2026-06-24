@@ -1,50 +1,66 @@
 #!/usr/bin/env bash
-# Write src/.env for the local run (dev tunnel behind APIM) from azd env values.
+# Generate the repo-root .env from the single .env.template.
+# Mode selection:
+# - auto  (default): dev mode when DEPLOY_DEV_BOT=true and dev bot creds exist, else smoke mode
+# - dev:   force dev mode
+# - smoke: force anonymous smoke mode
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 ENV_VALUES="$(azd env get-values 2>/dev/null || true)"
-v() { printf '%s\n' "$ENV_VALUES" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d '"'; }
+v() { printf '%s\n' "$ENV_VALUES" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d '"' || true; }
+lower() { printf '%s' "$1" | tr '[:upper:]' '[:lower:]'; }
 
-LOCAL_BOT_ID="$(v LOCAL_BOT_ID)"
-if [[ -z "$LOCAL_BOT_ID" ]]; then
-  echo "ERROR: LOCAL_BOT_ID is empty. Run 'azd provision' first." >&2
-  exit 1
-fi
+DEPLOY_DEV_BOT="$(lower "$(v DEPLOY_DEV_BOT)")"
+DEV_BOT_APP_ID="$(v DEV_BOT_APP_ID)"
+DEV_BOT_APP_SECRET="$(v DEV_BOT_APP_SECRET)"
+LOCAL_ENV_MODE="$(lower "${LOCAL_ENV_MODE:-auto}")"
 
-# The local bot client secret cannot be produced by Bicep (Entra secrets are write-only and
-# Microsoft.Resources/deploymentScripts is blocked on this subscription). Mint it here with
-# the developer's az identity (the deployer is an owner of the app, set in Bicep) and cache
-# it in the azd env so re-running this script does not rotate the secret unnecessarily.
-LOCAL_BOT_APP_SECRET="$(v LOCAL_BOT_APP_SECRET)"
-if [[ -z "$LOCAL_BOT_APP_SECRET" ]]; then
-  echo "Minting a client secret for the local bot app ($LOCAL_BOT_ID)..." >&2
-  LOCAL_BOT_APP_SECRET="$(az ad app credential reset --id "$LOCAL_BOT_ID" --append false --display-name local-dev --years 1 --query password -o tsv 2>/dev/null || true)"
-  if [[ -z "$LOCAL_BOT_APP_SECRET" ]]; then
-    echo "ERROR: could not create a client secret for app $LOCAL_BOT_ID." >&2
-    echo "       Ensure you are 'az login'ed as an owner of the app (the deployer) or an" >&2
-    echo "       Application Administrator. To rotate later, run:" >&2
-    echo "         azd env set LOCAL_BOT_APP_SECRET '' && ./scripts/gen_local_env.sh" >&2
+USE_DEV_MODE=false
+if [ "$LOCAL_ENV_MODE" = "dev" ]; then
+  if [ -z "$DEV_BOT_APP_ID" ] || [ -z "$DEV_BOT_APP_SECRET" ]; then
+    echo "LOCAL_ENV_MODE=dev requires DEV_BOT_APP_ID and DEV_BOT_APP_SECRET in azd env."
     exit 1
   fi
-  azd env set LOCAL_BOT_APP_SECRET "$LOCAL_BOT_APP_SECRET" >/dev/null
+  USE_DEV_MODE=true
+elif [ "$LOCAL_ENV_MODE" = "smoke" ]; then
+  USE_DEV_MODE=false
+else
+  if [ "$DEPLOY_DEV_BOT" = "true" ] && [ -n "$DEV_BOT_APP_ID" ] && [ -n "$DEV_BOT_APP_SECRET" ]; then
+    USE_DEV_MODE=true
+  fi
 fi
 
-cat > src/.env <<EOF
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID=${LOCAL_BOT_ID}
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTSECRET=${LOCAL_BOT_APP_SECRET}
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID=$(v AZURE_TENANT_ID)
-CONNECTIONS__SERVICE_CONNECTION__SETTINGS__AUTHTYPE=ClientSecret
-AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SSO__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME=default_user_access_token
-AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME=search_access_token
-CONNECTIONSMAP__0__CONNECTION=SERVICE_CONNECTION
-CONNECTIONSMAP__0__SERVICEURL=*
-BOT_CLIENT_ID=
-MS_FOUNDRY_PROJECT_ENDPOINT=$(v FOUNDRY_PROJECT_ENDPOINT)
-MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME=$(v MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME)
-AZURE_SEARCH_ENDPOINT=$(v AZURE_SEARCH_ENDPOINT)
-AZURE_SEARCH_INDEX=$(v AZURE_SEARCH_INDEX)
-PORT=3978
-EOF
+if [ "$USE_DEV_MODE" = "true" ]; then
+  AGENT_AUTH_MODE="bot"
+  ANONYMOUS_ALLOWED="false"
+  CONNECTIONS_CLIENTID="$DEV_BOT_APP_ID"
+  CONNECTIONS_CLIENTSECRET="$DEV_BOT_APP_SECRET"
+  CONNECTIONS_AUTHTYPE="ClientSecret"
+  MODE_LABEL="dev"
+else
+  AGENT_AUTH_MODE="anonymous"
+  ANONYMOUS_ALLOWED="true"
+  CONNECTIONS_CLIENTID=""
+  CONNECTIONS_CLIENTSECRET=""
+  CONNECTIONS_AUTHTYPE=""
+  MODE_LABEL="smoke"
+fi
 
-echo "Wrote src/.env"
+sed \
+  -e "s|\${{AGENT_AUTH_MODE}}|$AGENT_AUTH_MODE|g" \
+  -e "s|\${{ANONYMOUS_ALLOWED}}|$ANONYMOUS_ALLOWED|g" \
+  -e "s|\${{CONNECTIONS_CLIENTID}}|$CONNECTIONS_CLIENTID|g" \
+  -e "s|\${{CONNECTIONS_CLIENTSECRET}}|$CONNECTIONS_CLIENTSECRET|g" \
+  -e "s|\${{CONNECTIONS_AUTHTYPE}}|$CONNECTIONS_AUTHTYPE|g" \
+  -e "s|\${{AZURE_TENANT_ID}}|$(v AZURE_TENANT_ID)|g" \
+  -e "s|\${{FOUNDRY_PROJECT_ENDPOINT}}|$(v FOUNDRY_PROJECT_ENDPOINT)|g" \
+  -e "s|\${{MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME}}|$(v MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME)|g" \
+  -e "s|\${{AZURE_SEARCH_ENDPOINT}}|$(v AZURE_SEARCH_ENDPOINT)|g" \
+  -e "s|\${{AZURE_SEARCH_INDEX}}|$(v AZURE_SEARCH_INDEX)|g" \
+  .env.template > .env
+
+# Remove any stale src/.env so the repo-root .env is the one picked up by load_dotenv().
+rm -f src/.env
+
+echo "Wrote .env at repo root (mode: $MODE_LABEL)."

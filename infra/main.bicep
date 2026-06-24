@@ -162,6 +162,18 @@ module msFoundryProject './modules/foundry/ms-foundry-project.bicep' = {
   }
 }
 
+module msFoundryAppInsightsConnection './modules/foundry/ms-foundry-appinsights-connection.bicep' = {
+  name: 'msFoundryAppInsightsConnection'
+  scope: resourceGroup
+  params: {
+    msFoundryName: msFoundry.outputs.name
+    aiProjectName: 'prj-${resourceSuffixKebabcase}'
+    appInsightsName: applicationInsights.outputs.name
+    location: location
+  }
+  dependsOn: [msFoundryProject]
+}
+
 module chatOrchestratorDeploymentModel './modules/foundry/ms-foundry-model.bicep' = {
   name: 'chatOrchestratorDeploymentModel'
   scope: resourceGroup

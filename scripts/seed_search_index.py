@@ -10,8 +10,7 @@ Usage:
 Requires:
     AZURE_SEARCH_ENDPOINT=https://<search-service>.search.windows.net
     AZURE_SEARCH_INDEX=secure-docs  (optional, defaults to 'secure-docs')
-    CONTOSO_GROUP_PM_ID=<Entra group object ID for Project Managers>
-    CONTOSO_GROUP_MKTG_ID=<Entra group object ID for Marketing>
+    CONTOSO_GROUP_MARKETING_ID=<Entra group object ID for restricted docs>
 """
 
 import os
@@ -34,20 +33,19 @@ ENDPOINT = os.environ["AZURE_SEARCH_ENDPOINT"]
 INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX", "secure-docs")
 CREDENTIAL = DefaultAzureCredential()
 
-# Entra group IDs (not individual user OIDs — best practice)
-PM_GROUP_ID = os.environ.get("CONTOSO_GROUP_PM_ID", "")
-MKTG_GROUP_ID = os.environ.get("CONTOSO_GROUP_MKTG_ID", "")
+# Entra group ID (not individual user OID — best practice)
+MARKETING_GROUP_ID = os.environ.get("CONTOSO_GROUP_MARKETING_ID", "")
 
-if not PM_GROUP_ID or not MKTG_GROUP_ID:
-    print("Set CONTOSO_GROUP_PM_ID and DEMO_GROUP_MKTG_ID environment variables.")
-    print("Create two Entra security groups, add the test users, and use the group Object IDs.")
+if not MARKETING_GROUP_ID:
+    print("Set CONTOSO_GROUP_MARKETING_ID environment variable.")
+    print("Create one Entra security group, add the test users, and use its Object ID.")
     sys.exit(1)
 
 DOCUMENTS = [
-    # ── PM documents (PM group only) ──
+    # ── Marketing documents (same Entra group in this simplified POC) ──
     {
         "id": "pm-budget-q3",
-        "group_ids": [PM_GROUP_ID],
+        "group_ids": [MARKETING_GROUP_ID],
         "title": "Q3 2026 Event Budget Tracker",
         "content": (
             "Project Alpha — Annual Sales Kickoff (Paris, Sept 15-17)\n"
@@ -63,7 +61,7 @@ DOCUMENTS = [
     },
     {
         "id": "pm-vendor-contracts",
-        "group_ids": [PM_GROUP_ID],
+        "group_ids": [MARKETING_GROUP_ID],
         "title": "Vendor Contracts & SLAs — Active",
         "content": (
             "1. Marriott Champs-Élysées — Contract signed 2026-03-01, cancellation penalty 50% if <30 days.\n"
@@ -75,7 +73,7 @@ DOCUMENTS = [
     },
     {
         "id": "pm-risk-register",
-        "group_ids": [PM_GROUP_ID],
+        "group_ids": [MARKETING_GROUP_ID],
         "title": "Risk Register — Project Alpha",
         "content": (
             "R1 — Venue unavailability (Impact: High, Likelihood: Low): Backup venue identified at Pullman Tour Eiffel.\n"
@@ -85,10 +83,9 @@ DOCUMENTS = [
             "Last reviewed: 2026-03-28. Next review: 2026-04-15."
         ),
     },
-    # ── Marketing documents (Marketing group only) ──
     {
         "id": "mktg-campaign-plan",
-        "group_ids": [MKTG_GROUP_ID],
+        "group_ids": [MARKETING_GROUP_ID],
         "title": "Marketing Campaign Plan — Sales Kickoff 2026",
         "content": (
             "Objective: Generate internal buzz + 3 external press mentions.\n"
@@ -101,7 +98,7 @@ DOCUMENTS = [
     },
     {
         "id": "mktg-brand-guidelines",
-        "group_ids": [MKTG_GROUP_ID],
+        "group_ids": [MARKETING_GROUP_ID],
         "title": "Brand Guidelines — Event Communications",
         "content": (
             "Logo: Use Contoso primary logo (blue) on white backgrounds. Minimum size: 24px height.\n"
@@ -114,7 +111,7 @@ DOCUMENTS = [
     },
     {
         "id": "mktg-social-content",
-        "group_ids": [MKTG_GROUP_ID],
+        "group_ids": [MARKETING_GROUP_ID],
         "title": "Social Media Content Calendar — September 2026",
         "content": (
             "Sept 1 — LinkedIn: 'Save the date' post with event visual. Target: 10k impressions.\n"
@@ -127,10 +124,9 @@ DOCUMENTS = [
             "Sept 25 — LinkedIn: Post-event metrics infographic."
         ),
     },
-    # ── Shared documents (both groups) ──
     {
         "id": "shared-event-brief",
-        "group_ids": [PM_GROUP_ID, MKTG_GROUP_ID],
+        "group_ids": ["all"],
         "title": "Event Brief — Annual Sales Kickoff 2026",
         "content": (
             "Event: Annual Sales Kickoff 2026\n"
@@ -142,6 +138,7 @@ DOCUMENTS = [
             "Key stakeholders: VP Sales (sponsor), PM (Adele Vance), Marketing (Alex Wilber), Finance (CFO approval)."
         ),
     },
+
     {
         "id": "shared-catering-policy",
         "group_ids": ["all"],
@@ -163,7 +160,8 @@ def create_index():
     index = SearchIndex(
         name=INDEX_NAME,
         fields=[
-            SearchField(name="id", type="Edm.String", key=True, filterable=True, sortable=True),
+            SearchField(name="id", type="Edm.String", key=True,
+                        filterable=True, sortable=True),
             SearchField(
                 name="group_ids",
                 type="Collection(Edm.String)",
@@ -177,22 +175,23 @@ def create_index():
     )
 
     index_client.create_or_update_index(index)
-    print(f"✅ Index '{INDEX_NAME}' created with permissionFilterOption=ENABLED")
+    print(
+        f"✅ Index '{INDEX_NAME}' created with permissionFilterOption=ENABLED")
 
 
 def upload_documents():
-    search_client = SearchClient(endpoint=ENDPOINT, index_name=INDEX_NAME, credential=CREDENTIAL)
+    search_client = SearchClient(
+        endpoint=ENDPOINT, index_name=INDEX_NAME, credential=CREDENTIAL)
     result = search_client.upload_documents(documents=DOCUMENTS)
     succeeded = sum(1 for r in result if r.succeeded)
     print(f"✅ Uploaded {succeeded}/{len(DOCUMENTS)} documents")
 
     print("\nDocument ACLs:")
     for doc in DOCUMENTS:
-        group_display = doc["group_ids"][0] if len(doc["group_ids"]) == 1 else str(doc["group_ids"])
-        if group_display == PM_GROUP_ID:
-            group_display = f"PM Group ({PM_GROUP_ID})"
-        elif group_display == MKTG_GROUP_ID:
-            group_display = f"Marketing Group ({MKTG_GROUP_ID})"
+        group_display = doc["group_ids"][0] if len(
+            doc["group_ids"]) == 1 else str(doc["group_ids"])
+        if group_display == MARKETING_GROUP_ID:
+            group_display = f"Marketing Group ({MARKETING_GROUP_ID})"
         print(f"  {doc['title']} -> {group_display}")
 
 

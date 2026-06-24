@@ -29,7 +29,12 @@ substitute for this flow.
 ## Prerequisites
 
 - The dev container (it installs the `devtunnel` CLI via the devcontainer feature).
-- `az login` and `azd auth login` completed.
+- Sign in with **device code** (the dev container has no browser):
+  ```bash
+  az login --use-device-code
+  azd auth login --use-device-code
+  devtunnel user login -d
+  ```
 - Your test user is a member of the **Entra group** that grants document access — the
   real SSO flow puts that group membership into the Search token, so AI Search returns
   exactly the documents that user is allowed to see.
@@ -71,6 +76,23 @@ azd provision
 > If you provision **before** creating the tunnel, `LOCAL_TUNNEL_ENDPOINT` defaults to the
 > `https://localhost` placeholder and the local APIM backend won't reach your machine.
 > Run `./scripts/devtunnel.sh` first, then `azd provision` (or re-provision after).
+# 4. Generate the repo-root .env from the single .env.template.
+#    Auto mode: DEPLOY_DEV_BOT=true + dev bot creds => dev mode, otherwise smoke mode.
+./scripts/gen_local_env.sh
+
+# 5. Build and sideload the app package. With the dev bot deployed this produces a
+#    distinct dev app ('Alfred Dev', its own Teams app id) so it can sit next to prod.
+./scripts/build_manifest.sh
+#    Upload appPackage/build/appPackage.dev.zip in Teams
+#    (Apps > Manage your apps > Upload a custom app) or M365 Copilot.
+```
+
+> To provision **without** any dev resources (prod only): `azd env set DEPLOY_DEV_BOT false`
+> then `azd provision`. You can flip it back to `true` later and re-provision.
+>
+> You can also force the generated local mode explicitly:
+> `LOCAL_ENV_MODE=dev ./scripts/gen_local_env.sh` or
+> `LOCAL_ENV_MODE=smoke ./scripts/gen_local_env.sh`.
 
 ---
 
@@ -134,6 +156,14 @@ normal `azd provision` / `azd deploy` of the prod stack is unaffected.
   `curl -sL https://aka.ms/DevTunnelCliInstall | bash`.
 - **No documents returned** — confirm your test user is in the expected Entra group and
   that `azd provision` granted your `az login` identity the AI Search data-plane role.
+- **Telemetry / Azure Monitor errors (`does not have permissions`, IMDS timeouts)** —
+  the agent sends traces to Application Insights via the connection string from the Foundry
+  project (same as the Agent Framework observability sample). This needs `azd provision`
+  with the latest infra so App Insights allows connection-string ingestion
+  (`DisableLocalAuth: false`). Re-provision if you hit permission/IMDS errors.
+- **`Cannot connect to host api.botframework.com:443`** — outbound internet from the dev
+  container is blocked (network/proxy/firewall). This breaks Bot Framework token exchange
+  and SSO. Allow egress to `api.botframework.com:443` (or configure proxy env vars) and retry.
 
 ---
 
@@ -146,10 +176,8 @@ returns public documents only.
 
 ```bash
 az login
-cd src
-cp .env.local.example .env          # AGENT_AUTH_MODE=anonymous + ANONYMOUS_ALLOWED=true
-#   edit MS_FOUNDRY_PROJECT_ENDPOINT (copy from `azd env get-values`)
-uv run python main.py               # terminal 1 — agent on http://localhost:3978
+LOCAL_ENV_MODE=smoke ./scripts/gen_local_env.sh
+cd src && uv run python main.py     # terminal 1 — agent on http://localhost:3978
 ../scripts/run-test-tool.sh         # terminal 2 — local chat UI
 ```
 

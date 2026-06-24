@@ -4,7 +4,10 @@ from typing import AsyncIterable
 
 from agent_framework import Agent, AgentSession
 from agent_framework.foundry import FoundryChatClient
+from azure.ai.projects import AIProjectClient
+from azure.ai.projects.models import PromptAgentDefinition
 from azure.identity import AzureCliCredential, DefaultAzureCredential
+
 from models.orchestrator_response import OrchestratorResponse
 from tools.secure_search import SecureSearchContextProvider, set_current_search_token
 
@@ -58,13 +61,34 @@ Be concise and professional. Cite the document title when referencing informatio
             )
             context_providers.append(search_provider)
 
-        agent = Agent(
-            client=FoundryChatClient(
-                project_endpoint=os.environ["MS_FOUNDRY_PROJECT_ENDPOINT"],
-                model=os.environ["MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME"],
-                credential=credential,
+        project = AIProjectClient(
+            endpoint=os.environ["MS_FOUNDRY_PROJECT_ENDPOINT"],
+            credential=credential,
+        )
+
+        foundry_client = FoundryChatClient(
+            project_endpoint=os.environ["MS_FOUNDRY_PROJECT_ENDPOINT"],
+            model=os.environ["MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME"],
+            credential=credential,
+        )
+
+        await foundry_client.configure_azure_monitor(
+            enable_sensitive_data=True,
+            enable_live_metrics=True,
+        )
+
+        logger.info("Observability is set up. Starting Orchestrator Agent...")
+
+        agent_detail = project.agents.create_version(
+            agent_name="Orchestrator",
+            definition=PromptAgentDefinition(
+                model=foundry_client.model,
+                instructions=cls.instructions,
             ),
-            instructions=cls.instructions,
+        )
+        agent = Agent(
+            name=agent_detail.name,
+            client=foundry_client,
             context_providers=context_providers,
         )
         return cls(agent)
@@ -79,7 +103,8 @@ Be concise and professional. Cite the document title when referencing informatio
             if chunk.contents:
                 for content in chunk.contents:
                     if content.type == "function_call":
-                        logger.info("Tool call: %s(%s)", content.name, content.arguments)
+                        logger.info("Tool call: %s(%s)",
+                                    content.name, content.arguments)
                         yield OrchestratorResponse(tool_calls=content)
                     elif content.type == "function_result":
                         logger.info("Tool result: %s", content.call_id)

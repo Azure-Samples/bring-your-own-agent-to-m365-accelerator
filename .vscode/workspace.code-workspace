@@ -19,17 +19,10 @@
       "path": "../scripts",
     },
     {
-      "path": "../src/data_ingestion",
-      "name": "src/data_ingestion",
+      "path": "../src",
+      "name": "src",
       "settings": {
-        "python.defaultInterpreterPath": "../src/data_ingestion/.venv/bin/python",
-      }
-    },
-    {
-      "path": "../src/m365_agent_app",
-      "name": "src/m365_agent_app",
-      "settings": {
-        "python.defaultInterpreterPath": "../src/m365_agent_app/.venv/bin/python",
+        "python.defaultInterpreterPath": "../src/.venv/bin/python",
       }
     }
   ],

@@ -25,14 +25,13 @@ uv run python main.py
 
 This project uses Azure AI Search with Entra group-based document permissions. To set it up:
 
-### Create Entra security groups and add users
+### Create one Entra security group and add users
 
-This section shows how to create demo groups and add users. You can use existing groups if you already have them. Replace `<group-id>` and `<user-object-id>` with the actual IDs.
+This section shows how to create one demo group and add users. You can use an existing group if you already have one. Replace `<group-id>` and `<user-object-id>` with the actual IDs.
 
 ```bash
-az ad group create --display-name "Contoso-ProjectManagers" --mail-nickname "contoso-projectmanagers"
-az ad group create --display-name "Contonso-Marketing" --mail-nickname "contoso-marketing"
-# Add your users to the corresponding entra ID groups
+az ad group create --display-name "Contoso-RestrictedDocs" --mail-nickname "contoso-restricteddocs"
+# Add your users to the Entra ID group
 az ad group member add --group "<group-id>" --member-id "<user-object-id>"
 ```
 
@@ -40,13 +39,13 @@ az ad group member add --group "<group-id>" --member-id "<user-object-id>"
 
 ### Seed the AI Search index with demo documents
 
-For simplicity, you will use the same `.env` file used by the bot. The `seed_search_index.py` script will read the group IDs from the `.env` file and use them to set the document permissions.
+For simplicity, you will use the same `.env` file used by the bot. The `seed_search_index.py` script reads the group ID from `.env` and uses it to set restricted document permissions. Public documents are tagged with `group_ids=["all"]`.
 
 Inside the `.env` update the `AZURE_SEARCH_ENDPOINT` variable with your Azure AI Search endpoint. You can find it in the Azure portal under your Azure AI Search resource.
 
 ![Get the ai search url](./assets/get_ai_search_url.png)
 
-Then inside your `.env` update the `CONTOSO_GROUP_PM_ID` and `CONTOSO_GROUP_MKTG_ID` with the group IDs:
+Then inside your `.env` update `CONTOSO_GROUP_MARKETING_ID` with your Entra group Object ID:
 
 ```bash
 python scripts/seed_search_index.py
@@ -58,7 +57,7 @@ Upload the manifest from `appPackage/` in Teams → Apps → Manage your apps �
 
 ## Configuration
 
-All configuration is via environment variables. See [`.env.template`](src/.env.template).
+All configuration is via environment variables. See [`.env.template`](../.env.template).
 
 | Variable | Description | Set by |
 |----------|-------------|--------|
@@ -66,5 +65,4 @@ All configuration is via environment variables. See [`.env.template`](src/.env.t
 | `AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__*` | Search token handler | `azd provision` |
 | `AZURE_SEARCH_ENDPOINT` | AI Search endpoint | `azd provision` |
 | `MS_FOUNDRY_PROJECT_ENDPOINT` | Foundry project endpoint | `azd provision` |
-| `CONTOSO_GROUP_PM_ID` | Entra group ID for PM documents | Manual (`.env`) |
-| `CONTOSO_GROUP_MKTG_ID` | Entra group ID for Marketing documents | Manual (`.env`) |
+| `CONTOSO_GROUP_MARKETING_ID` | Entra group ID for restricted documents | Manual (`.env`) |

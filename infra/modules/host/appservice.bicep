@@ -114,8 +114,7 @@
         runtimeName == 'python' && appCommandLine == '' ? { PYTHON_ENABLE_GUNICORN_MULTIWORKERS: 'true' } : {},
         !empty(applicationInsightsName)
           ? {
-              APPLICATIONINSIGHTS_AUTHENTICATION_STRING: 'Authorization=AAD'
-              APPLICATIONINSIGHTS_CONNECTION_STRING: 'InstrumentationKey=${applicationInsights.properties.InstrumentationKey};IngestionEndpoint=https://${location}.in.applicationinsights.azure.com/;LiveEndpoint=https://${location}.livediagnostics.monitor.azure.com/'
+              APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.properties.ConnectionString
             }
           : {},
         !empty(keyVaultName) ? { AZURE_KEY_VAULT_ENDPOINT: keyVault.?properties.?vaultUri } : {}
