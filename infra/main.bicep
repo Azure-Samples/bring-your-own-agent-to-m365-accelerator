@@ -63,7 +63,7 @@ param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
   'Developer'
   'BasicV2'
 ])
-param apimSku string = 'BasicV2'
+param apimSku string = 'Consumption'
 
 // ── Dev-tunnel (local development behind APIM) ──
 // When localTunnelEndpoint is set, the agent runs locally and is exposed through a
