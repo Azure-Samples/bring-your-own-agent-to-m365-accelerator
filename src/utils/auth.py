@@ -3,9 +3,30 @@
 import logging
 from typing import Optional
 
+import jwt
 from microsoft_agents.hosting.core import AgentApplication, TurnContext
 
 logger = logging.getLogger("utils.auth")
+
+# Claims that are safe to log for diagnostics (no secrets, identifies the user/token).
+_SAFE_CLAIMS = ("aud", "iss", "appid", "azp", "scp", "roles", "oid", "upn", "unique_name", "name", "tid", "exp")
+
+
+def decode_token_claims(token: Optional[str]) -> dict:
+    """Decode a JWT WITHOUT signature verification and return a subset of safe claims.
+
+    Used for runtime diagnostics only. Never logs the raw token — only non-secret
+    claims (audience, scopes, object id, upn, expiry) to identify which user the
+    token belongs to and confirm the correct audience/scope.
+    """
+    if not token:
+        return {}
+    try:
+        claims = jwt.decode(token, options={"verify_signature": False})
+        return {k: claims[k] for k in _SAFE_CLAIMS if k in claims}
+    except Exception as e:  # pragma: no cover - diagnostic best-effort
+        logger.debug("Could not decode token claims: %s", e)
+        return {}
 
 
 async def acquire_token(

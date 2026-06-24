@@ -1,13 +1,12 @@
 param name string
 param location string = resourceGroup().location
 param tags object = {}
-param skuName string = 'free'
+param skuName string = 'standard'
 @allowed([
-  'disabled'
   'free'
   'standard'
 ])
-param semanticSearch string = 'free'
+param semanticSearch string = 'standard'
 
 resource aiSearchService 'Microsoft.Search/searchServices@2025-05-01' = {
   name: name

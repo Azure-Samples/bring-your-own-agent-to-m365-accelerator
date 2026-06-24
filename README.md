@@ -52,64 +52,24 @@ azd auth login --use-device-code
 ### Provision and deploy
 
 ```bash
-azd up
+azd provision
 ```
 
 This provisions all Azure resources (App Service, Bot Service, API Management, AI Search, Microsoft Foundry, app registrations, OAuth connections) and deploys the Python application.
 
-> You can also run `azd provision` and `azd deploy` separately.
-
-### Per-user document access control
-
-This project uses Azure AI Search with Entra group-based document permissions. To set it up:
-
-1. **Create Entra security groups and add users:**
-
 ```bash
-az ad group create --display-name "SG-ProjectManagers" --mail-nickname "sg-projectmanagers"
-az ad group create --display-name "SG-Marketing" --mail-nickname "sg-marketing"
-
-az ad group member add --group "<group-id>" --member-id "<user-object-id>"
+azd deploy
 ```
 
-2. **Grant admin consent for AI Search permissions:**
 
-```bash
-az ad app permission admin-consent --id $(azd env get-values | grep AAD_APP_CLIENT_ID | cut -d'"' -f2)
-```
 
-3. **Seed the AI Search index with demo documents:**
-
-```bash
-cd src/m365_agent_app
-echo 'DEMO_GROUP_PM_ID=<pm-group-id>' >> .env
-echo 'DEMO_GROUP_MKTG_ID=<marketing-group-id>' >> .env
-python ../../scripts/seed_search_index.py
-```
-
-4. **Sideload the app in Teams/Copilot:**
-
-Upload the manifest from `appPackage/` in Teams → Apps → Manage your apps → Upload a custom app.
-
-## Configuration
-
-All configuration is via environment variables. See [`.env.template`](src/m365_agent_app/.env.template).
-
-| Variable | Description | Set by |
-|----------|-------------|--------|
-| `CONNECTIONS__SERVICE_CONNECTION__*` | Bot identity (UAMI) | `azd provision` |
-| `AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__*` | Search token handler | `azd provision` |
-| `AZURE_SEARCH_ENDPOINT` | AI Search endpoint | `azd provision` |
-| `MS_FOUNDRY_PROJECT_ENDPOINT` | Foundry project endpoint | `azd provision` |
-| `DEMO_GROUP_PM_ID` | Entra group ID for PM documents | Manual (`.env`) |
-| `DEMO_GROUP_MKTG_ID` | Entra group ID for Marketing documents | Manual (`.env`) |
 
 ## Local Development
 
 ### 1. Install dependencies
 
 ```bash
-cd src/m365_agent_app
+cd src
 uv sync
 ```
 

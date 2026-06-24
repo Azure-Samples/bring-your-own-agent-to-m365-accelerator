@@ -10,8 +10,8 @@ Usage:
 Requires:
     AZURE_SEARCH_ENDPOINT=https://<search-service>.search.windows.net
     AZURE_SEARCH_INDEX=secure-docs  (optional, defaults to 'secure-docs')
-    DEMO_GROUP_PM_ID=<Entra group object ID for Project Managers>
-    DEMO_GROUP_MKTG_ID=<Entra group object ID for Marketing>
+    CONTOSO_GROUP_PM_ID=<Entra group object ID for Project Managers>
+    CONTOSO_GROUP_MKTG_ID=<Entra group object ID for Marketing>
 """
 
 import os
@@ -35,11 +35,11 @@ INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX", "secure-docs")
 CREDENTIAL = DefaultAzureCredential()
 
 # Entra group IDs (not individual user OIDs — best practice)
-PM_GROUP_ID = os.environ.get("DEMO_GROUP_PM_ID", "")
-MKTG_GROUP_ID = os.environ.get("DEMO_GROUP_MKTG_ID", "")
+PM_GROUP_ID = os.environ.get("CONTOSO_GROUP_PM_ID", "")
+MKTG_GROUP_ID = os.environ.get("CONTOSO_GROUP_MKTG_ID", "")
 
 if not PM_GROUP_ID or not MKTG_GROUP_ID:
-    print("Set DEMO_GROUP_PM_ID and DEMO_GROUP_MKTG_ID environment variables.")
+    print("Set CONTOSO_GROUP_PM_ID and DEMO_GROUP_MKTG_ID environment variables.")
     print("Create two Entra security groups, add the test users, and use the group Object IDs.")
     sys.exit(1)
 

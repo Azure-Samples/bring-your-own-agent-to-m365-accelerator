@@ -26,12 +26,18 @@ from microsoft_agents.hosting.core import (
 )
 
 from agents.orchestrator import OrchestratorAgent
-from utils import acquire_token, stream_agent_response
+from utils import acquire_token, decode_token_claims, stream_agent_response
 
 load_dotenv()
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("app")
+
+# Runtime diagnostic logging — set ENABLE_DIAG_LOGS=false to silence.
+DIAG = environ.get("ENABLE_DIAG_LOGS", "true").lower() == "true"
+# ⚠️ SECURITY: dumps RAW tokens to logs. Debug/sandbox ONLY. Set to false (default) for prod.
+DUMP_RAW_TOKENS = environ.get("ENABLE_RAW_TOKEN_DUMP", "false").lower() == "true"
+diag_logger = logging.getLogger("diag")
 
 # ── SDK configuration ──
 
@@ -46,7 +52,7 @@ AGENT_APP = AgentApplication[TurnState](
 )
 
 credential = DefaultAzureCredential(
-    managed_identity_client_id=environ.get("AZURE_CLIENT_ID")
+    managed_identity_client_id=environ.get("BOT_CLIENT_ID")
 )
 
 # ── Lazy agent initialization ──
@@ -107,7 +113,37 @@ async def on_message(context: TurnContext, state: TurnState):
     user_name = context.activity.from_property.name or "unknown"
     logger.info("Message from %s: %s", user_name, user_message[:100])
 
+    if DIAG:
+        act = context.activity
+        channel_raw = getattr(act.channel_id, "channel_id", act.channel_id)
+        channel_norm = getattr(act.channel_id, "channel", act.channel_id)
+        diag_logger.info(
+            "DIAG inbound | user=%s | aadObjectId=%s | channel_raw=%s | channel_norm=%s | conversation=%s",
+            user_name,
+            getattr(act.from_property, "aad_object_id", None),
+            channel_raw,
+            channel_norm,
+            act.conversation.id if act.conversation else None,
+        )
+
     search_token = await acquire_token(AGENT_APP, context, "SEARCH", user_name)
+
+    if DIAG:
+        if search_token:
+            claims = decode_token_claims(search_token)
+            diag_logger.info(
+                "DIAG search_token OK | user=%s | aud=%s | scp=%s | oid=%s | upn=%s | exp=%s",
+                user_name,
+                claims.get("aud"),
+                claims.get("scp"),
+                claims.get("oid"),
+                claims.get("upn") or claims.get("unique_name"),
+                claims.get("exp"),
+            )
+            if DUMP_RAW_TOKENS:
+                diag_logger.warning("DIAG_RAW search_token | user=%s | RAW=%s", user_name, search_token)
+        else:
+            diag_logger.warning("DIAG search_token MISSING | user=%s (consent not completed?)", user_name)
 
     try:
         if context.streaming_response is not None:
