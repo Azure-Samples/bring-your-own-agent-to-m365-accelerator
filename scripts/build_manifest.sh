@@ -3,7 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-v() { azd env get-value "$1" 2>/dev/null; }
+ENV_VALUES="$(azd env get-values 2>/dev/null || true)"
+v() { printf '%s\n' "$ENV_VALUES" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d '"'; }
 
 mkdir -p appPackage/build
 sed -e "s|\${{BOT_ID}}|$(v BOT_ID)|g" \

@@ -4,15 +4,15 @@
 set -euo pipefail
 
 PORT=3978
-# devtunnel user login >/dev/null 2>&1 || true
-# devtunnel user login --use-device-code-auth 
-
-# TUNNEL_ID="$(azd env get-value TUNNEL_ID 2>/dev/null || true)"
-# if [ -z "$TUNNEL_ID" ]; then
-  TUNNEL_ID="$(devtunnel create -a | grep -i "Tunnel ID" | sed "s/.*: *//" | tr -d "[:space:]")"
+# Read the saved tunnel id from the azd env (empty on first run; '|| true' so a missing
+# key or no-match grep does not abort the script under 'set -e -o pipefail').
+TUNNEL_ID="$(azd env get-values 2>/dev/null | grep '^TUNNEL_ID=' | cut -d= -f2- | tr -d '"' || true)"
+if [ -z "$TUNNEL_ID" ]; then
+  CREATE_OUT="$(devtunnel create -a)"
+  TUNNEL_ID="$(printf '%s\n' "$CREATE_OUT" | grep -i 'Tunnel ID' | head -1 | sed 's/.*: *//' | tr -d ' \t\r\n' || true)"
   devtunnel port create "$TUNNEL_ID" -p "$PORT" --protocol http
   azd env set TUNNEL_ID "$TUNNEL_ID"
-# fi
+fi
 
 DOMAIN="${TUNNEL_ID%%.*}-${PORT}.${TUNNEL_ID#*.}.devtunnels.ms"
 azd env set LOCAL_TUNNEL_ENDPOINT "https://$DOMAIN"
