@@ -49,7 +49,7 @@ Inside the `.env` update the `AZURE_SEARCH_ENDPOINT` variable with your Azure AI
 Then inside your `.env` update the `CONTOSO_GROUP_PM_ID` and `CONTOSO_GROUP_MKTG_ID` with the group IDs:
 
 ```bash
-python src/scripts/seed_search_index.py
+python scripts/seed_search_index.py
 ```
 
 1. **Sideload the app in Teams/Copilot:**
