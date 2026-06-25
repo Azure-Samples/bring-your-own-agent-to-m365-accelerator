@@ -6,7 +6,183 @@ This sample scripts are not supported under any Microsoft standard support progr
 
 ##  Architecture
 
-This project is an M365 Agent Application built with Python and the Microsoft Agent Framework, deployable to Azure using the Azure Developer CLI (`azd`). It demonstrates how to build a secure enterprise agent with per-user document access control through Azure AI Search and Entra security groups.
+This project is an M365 Agent Application built with Python, M365 Agent SDK and the Microsoft Agent Framework, deployable to Azure using the Azure Developer CLI (`azd`). It demonstrates how to build a secure enterprise agent with per-user document access control through Azure AI Search and Entra security groups.
+
+```mermaid
+flowchart LR
+    User["Teams / M365 Copilot"] --> Bot["Azure Bot Service<br/>(App Registration + Managed Identity)"]
+    Bot -->|"Generate JWT and call /bot/api/messages"| APIM["APIM<br/>validate-jwt"]
+    APIM -->|"forward to /api/messages"| App["Orchestrator Agent"]
+    App -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
+    App --> Foundry["Microsoft Foundry"]
+```
+
+## Prerequisites
+
+### Option 1: Use the DevContainer (recommended)
+
+1. Install [Visual Studio Code](https://code.visualstudio.com/download) and the [Remote - Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers).
+
+2. Open the project in VS Code and click "Reopen in Container" when prompted. This will set up a development environment with all dependencies installed.
+
+### Option 2: Install dependencies locally
+
+- [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+- [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+- [Python 3.13+](https://www.python.org/downloads/)
+- [uv](https://docs.astral.sh/uv/)
+- [Dev Tunnel](https://learn.microsoft.com/en-us/azure/developer/dev-tunnels/get-started?tabs=linux)
+- An Azure subscription with access to Microsoft Foundry, AI Search, and API Management
+- A Microsoft 365 tenant with Teams/Copilot access, admin access to validate the application in the tenant.
+
+## Authentication
+
+Before provisioning or deploying, authenticate with Azure:
+
+```bash
+az login --use-device-code
+azd auth login --use-device-code
+```
+
+## Deploy infrastructure
+
+At the **root** of the project, run the following commands to provision and deploy the application to Azure:
+
+```bash
+azd provision
+```
+
+This provisions all Azure resources (App Service, Bot Service, API Management, AI Search, Microsoft Foundry, app registrations, OAuth connections) and deploys the Python application.
+
+## Populate AI Search index
+
+### Generate local environment variables
+
+To be able to test the application, you need to populate the Azure AI Search index with sample documents. First, generate the local environment variables by running the following command:
+
+```bash
+./scripts/gen_local_env.sh 
+```
+
+This will create a `.env` file at the root of the project with the necessary environment variables. Then, run the following command to populate the AI Search index:
+
+### Install dependencies
+
+```bash
+cd src
+uv sync
+```
+
+### Activate the virtual environment
+
+Source the virtual environment to activate it, so the dependencies installed in the virtual environment are used instead of the system-wide Python packages:
+
+```bash
+source .venv/bin/activate
+```
+
+### Populate the AI Search index
+
+This project uses Azure AI Search with Entra group-based document permissions. To set it up, you need to create an Entra security group and add users to it. Then, you can seed the AI Search index with demo documents that have restricted access based on the group membership. If you already have an Entra group and users, you can skip the group creation step and just add users to your existing group.
+
+#### Create one Entra security group and add users
+
+This section shows how to create one demo group and add users. You can use an existing group if you already have one. Replace `<group-id>` and `<user-object-id>` with the actual IDs.
+
+```bash
+az ad group create --display-name "Contoso-RestrictedDocs" --mail-nickname "contoso-restricteddocs"
+# Add your users to the Entra ID group
+az ad group member add --group "<group-id>" --member-id "<user-object-id>"
+```
+
+![Get user object ID](./docs/assets/get_user_id.png)
+
+### Seed the AI Search index with demo documents
+
+For simplicity, you will use the same `.env` file used by the bot. The `seed_search_index.py` script reads the group ID from `.env` and uses it to set restricted document permissions. Public documents are tagged with `group_ids=["all"]`.
+
+Inside the `.env` update the `CONTOSO_GROUP_MARKETING_ID` variable with your Entra group Object ID you created or reused.
+
+Then from the **root** of the project, run the following command to seed the AI Search index with demo documents:
+
+```bash
+python ./scripts/seed_search_index.py
+```
+
+## Run the application
+
+You have 3 modes to run the application: 
+- Production mode (deployed to Azure, real SSO + per-user ACLs)
+- Development / Debug mode (local Bot Service + Dev tunnel)
+- Anonymous mode (no SSO, no per-user ACLs)
+
+### Production Mode
+
+First, run the following command to deploy the application to Azure:
+
+```bash
+azd deploy
+```
+
+The deployment must take few minutes, if it takes longer than 5 minutes cancel the deployment and run the command again. 
+
+When it's deploy you must now generate the manifest package to upload to the admin Teams portal. Run the following command to generate the manifest package:
+
+The teams app id is a unique GUID that you must keep to be able to update the app in the future. 
+
+Update the `--teams-app-id` parameter with your own unique GUID.
+
+```bash
+./scripts/build_manifest.sh \
+  --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d453 \
+  --bot-id "$(azd env get-value BOT_ID)" \
+  --domain "$(azd env get-value BOT_DOMAIN)" \
+  --app-uri "$(azd env get-value AAD_APP_ID_URI)" \
+  --app-id "$(azd env get-value AAD_APP_CLIENT_ID)" \
+  --short-name "Coordinator" \
+  --full-name "Coordinator" \
+  --zip appPackage.zip
+```
+
+This will create the `appPackage.zip` file ìn the `appPackage/build` folder.
+
+Now follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) section
+
+### Anonymous Mode (no SSO, no per-user ACLs)
+
+## Deploy to Teams and M365 Copilot
+
+### Development / Debug Mode
+
+
+## Upload the app to Teams
+
+To upload the app to Teams, follow these steps:
+
+Open `https://admin.teams.microsoft.com/policies/manage-apps` and sign in with your Microsoft 365 account.
+
+Upload the `.zip` file you created in the previous step:
+
+![Upload the app to Teams](./docs/assets/admin_center_teams_app.png)
+
+Then give acces to your testing user or group:
+
+![Give access to your testing user or group](./docs/assets/app_user_access.png)
+
+By picking only one group or user, the propagation of the app will be faster.
+
+
+
+```mermaid
+flowchart LR
+    User["Teams / M365 Copilot"] --> Bot["Local Bot Service<br/>(single-tenant + secret)"]
+    Bot -->|"Bot Framework JWT"| APIM["APIM<br/>validate-jwt"]
+    APIM -->|"forward /api/messages"| Tunnel["Dev tunnel<br/>(public URL)"]
+    Tunnel --> Local["Local agent<br/>python main.py :3978"]
+    Local -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
+    Local --> Foundry["Microsoft Foundry"]
+```
+
 
 ```mermaid
 sequenceDiagram

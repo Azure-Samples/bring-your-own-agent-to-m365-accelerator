@@ -431,7 +431,6 @@ module appRegistration './modules/security/app-registration.bicep' = {
   params: {
     aadAppName: 'app-reg-${resourceSuffixKebabcase}'
     botId: botUami.outputs.clientId
-    additionalBotId: localBotAppRegistration.outputs.appId
     tenantId: tenantId
     tenantIdBase64Encoded: tenantIdBase64Encoded
   }
@@ -546,10 +545,10 @@ module botOAuthConnectionLocal './modules/security/bot-oauth-connection.bicep' =
   params: {
     botServiceName: botServiceLocal.outputs.botName
     connectionName: 'default_user_access_token'
-    aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.localAadAppIdUri
+    aadAppId: localBotAppRegistration.outputs.appId
+    aadAppIdUri: localBotAppRegistration.outputs.appIdUri
     federatedCredentialName: appRegistration.outputs.fciName
-    scopes: '${appRegistration.outputs.localAadAppIdUri}/access_as_user'
+    scopes: '${localBotAppRegistration.outputs.appIdUri}/access_as_user'
     tenantId: tenantId
     location: 'global'
   }
@@ -562,7 +561,7 @@ module botOAuthSearchLocal './modules/security/bot-oauth-connection.bicep' = {
     botServiceName: botServiceLocal.outputs.botName
     connectionName: 'search_access_token'
     aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.localAadAppIdUri
+    aadAppIdUri: appRegistration.outputs.aadAppIdUri
     federatedCredentialName: appRegistration.outputs.fciName
     scopes: 'https://search.azure.com/user_impersonation'
     tenantId: tenantId
@@ -585,7 +584,7 @@ output LOCAL_BOT_ID string = localBotAppRegistration.outputs.appId
 output LOCAL_BOT_SERVICE_NAME string = botServiceLocal.outputs.botName
 output LOCAL_BOT_ENDPOINT string = botApiLocal.outputs.messagingEndpoint
 output LOCAL_BOT_DOMAIN string = replace(localTunnelEndpoint, 'https://', '')
-output LOCAL_BOT_AAD_APP_ID_URI string = appRegistration.outputs.localAadAppIdUri
+output LOCAL_BOT_AAD_APP_ID_URI string = localBotAppRegistration.outputs.appIdUri
 
 
 // App Registration outputs
