@@ -106,6 +106,7 @@ Inside the `.env` update the `CONTOSO_GROUP_MARKETING_ID` variable with your Ent
 Then from the **root** of the project, run the following command to seed the AI Search index with demo documents:
 
 ```bash
+cd .. # Go back to the root of the project
 python ./scripts/seed_search_index.py
 ```
 
@@ -134,7 +135,7 @@ Update the `--teams-app-id` parameter with your own unique GUID.
 
 ```bash
 ./scripts/build_manifest.sh \
-  --app-version "1.0.2" \
+  --app-version "1.0.3" \
   --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d453 \
   --bot-id "$(azd env get-value BOT_ID)" \
   --domain "$(azd env get-value BOT_DOMAIN)" \
