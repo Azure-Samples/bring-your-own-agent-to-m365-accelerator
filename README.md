@@ -95,7 +95,7 @@ az ad group create --display-name "Contoso-RestrictedDocs" --mail-nickname "cont
 az ad group member add --group "<group-id>" --member-id "<user-object-id>"
 ```
 
-![Get user object ID](./docs/assets/get_user_id.png)
+![Get user object ID](./docs/get_user_id.png)
 
 ### Seed the AI Search index with demo documents
 
@@ -109,6 +109,10 @@ Then from the **root** of the project, run the following command to seed the AI 
 cd .. # Go back to the root of the project
 python ./scripts/seed_search_index.py
 ```
+
+You should see something like this:
+
+![Seed AI Search index](./docs/seed_search_command.png)
 
 ## Run the application
 
@@ -134,14 +138,14 @@ Update the `--teams-app-id` parameter with your own unique GUID.
 
 ```bash
 ./scripts/build_manifest.sh \
-  --app-version "1.0.3" \
+  --app-version "1.0.0" \
   --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d453 \
   --bot-id "$(azd env get-value BOT_ID)" \
   --domain "$(azd env get-value APIM_DOMAIN)" \
   --app-uri "$(azd env get-value AAD_APP_ID_URI)" \
   --app-id "$(azd env get-value AAD_APP_CLIENT_ID)" \
-  --short-name "Coordinator" \
-  --full-name "Coordinator" \
+  --short-name "YourAgent" \
+  --full-name "YourAgent" \
   --zip appPackage.zip
 ```
 
@@ -154,6 +158,16 @@ Now follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) se
 ### Development / Debug Mode
 
 To run the application in development/debug mode, you need to set up a dev tunnel and run the local agent. 
+
+```mermaid
+flowchart LR
+    User["Teams / M365 Copilot"] --> Bot["Local Bot Service<br/>(single-tenant + secret)"]
+    Bot -->|"Bot Framework JWT"| APIM["APIM<br/>validate-jwt"]
+    APIM -->|"forward /api/messages"| Tunnel["Dev tunnel<br/>(public URL)"]
+    Tunnel --> Local["Local agent<br/>python main.py :3978"]
+    Local -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
+    Local --> Foundry["Microsoft Foundry"]
+```
 
 First, run the following command to login to the dev tunnel:
 
@@ -197,8 +211,8 @@ Update the `--teams-app-id` parameter with your own unique GUID for the developm
   --domain "$(azd env get-value APIM_DOMAIN)" \
   --app-uri "$(azd env get-value LOCAL_BOT_APP_REGISTRATION_URI)" \
   --app-id "$(azd env get-value LOCAL_BOT_APP_REGISTRATION_ID)" \
-  --short-name "Spirou" \
-  --full-name "Spirou" \
+  --short-name "YourAgent" \
+  --full-name "YourAgent" \
   --zip appPackage.dev.zip
 ```
 
@@ -212,25 +226,14 @@ Open `https://admin.teams.microsoft.com/policies/manage-apps` and sign in with y
 
 Upload the `.zip` file you created in the previous step:
 
-![Upload the app to Teams](./docs/assets/admin_center_teams_app.png)
+![Upload the app to Teams](./docs/admin_center_teams_app.png)
 
 Then give acces to your testing user or group:
 
-![Give access to your testing user or group](./docs/assets/app_user_access.png)
+![Give access to your testing user or group](./docs/app_user_access.png)
 
 By picking only one group or user, the propagation of the app will be faster.
 
-
-
-```mermaid
-flowchart LR
-    User["Teams / M365 Copilot"] --> Bot["Local Bot Service<br/>(single-tenant + secret)"]
-    Bot -->|"Bot Framework JWT"| APIM["APIM<br/>validate-jwt"]
-    APIM -->|"forward /api/messages"| Tunnel["Dev tunnel<br/>(public URL)"]
-    Tunnel --> Local["Local agent<br/>python main.py :3978"]
-    Local -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
-    Local --> Foundry["Microsoft Foundry"]
-```
 
 
 ```mermaid
@@ -298,17 +301,6 @@ sequenceDiagram
     B-->>M: Stream content
     M-->>U: Display result progressively
 ```
-
-## 📖 Summary
-
-Follow the steps below to set up and run the project locally, deploy it to Azure, and integrate it with Microsoft Teams and M365 Copilot:
-
-1) [Deploy the project to Azure](docs/deploy-project.md)
-2) [Populate the Azure AI Search index with sample documents](docs/populate-ai-search-index.md)
-3) [Deploy to Microsoft Teams and M365 Copilot](docs/deploy-to-teams-and-copilot-m365.md)
-
-For local development and debugging through the **full production flow** (local Bot Service → APIM → dev tunnel → local agent → real SSO + per-user ACLs), see [Local development — dev tunnel behind APIM](docs/LOCAL_DEVELOPMENT.md).
-
 
 ## References
 
