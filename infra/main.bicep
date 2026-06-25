@@ -195,17 +195,6 @@ module aiSearch './modules/data/ai_search.bicep' = {
   }
 }
 
-// RBAC: Search Index Data Contributor + Reader for bot identity
-module searchRoles './modules/security/search-roles.bicep' = {
-  name: 'searchRoles'
-  scope: resourceGroup
-  params: {
-    searchServiceName: aiSearch.outputs.name
-    principalId: botUami.outputs.principalId
-    deployerPrincipalId: deployer().objectId
-  }
-}
-
 module msFoundryAISearchConnection './modules/foundry/ms-foundry-ai-search-connection.bicep' = {
   name: 'msFoundryAISearchConnection'
   scope: resourceGroup
