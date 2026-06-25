@@ -298,6 +298,7 @@ module botService './modules/bot/bot-service.bicep' = {
     messagingEndpoint: botApiProd.outputs.messagingEndpoint
     logAnalyticsId: logAnalytics.outputs.id
     appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
+    tags: tags
   }
 }
 
@@ -312,6 +313,7 @@ module botServiceLocal './modules/bot/bot-service-local.bicep' = {
     messagingEndpoint: botApiLocal.outputs.messagingEndpoint
     logAnalyticsId: logAnalytics.outputs.id
     appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
+    tags: tags
   }
 }
 
