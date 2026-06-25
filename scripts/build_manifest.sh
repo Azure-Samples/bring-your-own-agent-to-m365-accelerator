@@ -10,6 +10,7 @@ Usage: $0 [OPTIONS]
 All values fall back to the current azd environment when not provided.
 
 Options:
+  --app-version <version>  App version (default: 1.0.0)
   --teams-app-id <id>   Teams app ID to embed in the manifest
   --bot-id <id>         Bot registration ID
   --domain <host>       App Service domain (without scheme)
@@ -27,6 +28,7 @@ ENV_VALUES="$(azd env get-values 2>/dev/null || true)"
 v() { printf '%s\n' "$ENV_VALUES" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d '"' || true; }
 
 # Defaults from azd env
+APP_VERSION="1.0.0"
 TEAMS_APP_ID=""
 BOT_ID="$(v BOT_ID)"
 DOMAIN="$(v BOT_DOMAIN)"
@@ -38,6 +40,7 @@ ZIP="appPackage.zip"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --app-version)  APP_VERSION="$2";  shift 2 ;;
     --teams-app-id) TEAMS_APP_ID="$2"; shift 2 ;;
     --bot-id)       BOT_ID="$2";       shift 2 ;;
     --domain)       DOMAIN="$2";       shift 2 ;;
@@ -58,7 +61,8 @@ SHORT_NAME="${SHORT_NAME:-$APP_NAME}"
 FULL_NAME="${FULL_NAME:-$APP_NAME}"
 
 mkdir -p appPackage/build
-sed -e "s|\${{TEAMS_APP_ID}}|$TEAMS_APP_ID|g" \
+sed -e "s|\${{APP_VERSION}}|$APP_VERSION|g" \
+    -e "s|\${{TEAMS_APP_ID}}|$TEAMS_APP_ID|g" \
     -e "s|\${{APP_NAME}}|$APP_NAME|g" \
     -e "s|\${{APP_SHORT_NAME}}|$SHORT_NAME|g" \
     -e "s|\${{APP_FULL_NAME}}|$FULL_NAME|g" \

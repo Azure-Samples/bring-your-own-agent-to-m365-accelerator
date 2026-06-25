@@ -244,7 +244,6 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
       AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'search_access_token'
       // Foundry agent configuration (direct mode — agent-framework in-process)
       MS_FOUNDRY_PROJECT_ENDPOINT: msFoundryProject.outputs.endpoint
-      MS_FOUNDRY_RESOURCE_ENDPOINT: msFoundry.outputs.aoaiEndpoint
       MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME: chatOrchestratorModel.name
       // Connections map
       CONNECTIONSMAP__0__CONNECTION: 'SERVICE_CONNECTION'
@@ -600,5 +599,4 @@ output AZURE_SEARCH_INDEX string = 'secure-docs'
 
 // Foundry outputs
 output FOUNDRY_PROJECT_ENDPOINT string = msFoundryProject.outputs.endpoint
-output MS_FOUNDRY_RESOURCE_ENDPOINT string = msFoundry.outputs.aoaiEndpoint
 output MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME string = chatOrchestratorModel.name

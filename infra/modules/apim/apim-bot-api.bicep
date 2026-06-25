@@ -46,4 +46,4 @@ resource botApiPolicy 'Microsoft.ApiManagement/service/apis/policies@2024-05-01'
   }
 }
 
-output messagingEndpoint string = 'https://${apiManagement.name}.azure-api.net/${apiPath}/api/messages'
+output messagingEndpoint string = uri('${apiManagement.properties.gatewayUrl}/', '${apiPath}/api/messages')
