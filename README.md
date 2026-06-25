@@ -134,10 +134,10 @@ Update the `--teams-app-id` parameter with your own unique GUID.
 
 ```bash
 ./scripts/build_manifest.sh \
-  --app-version "1.0.1" \
+  --app-version "1.0.2" \
   --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d453 \
   --bot-id "$(azd env get-value BOT_ID)" \
-  --domain "apim-dev-cpl-er4er6gt.preview.int-azure-api.net" \
+  --domain "$(azd env get-value BOT_DOMAIN)" \
   --app-uri "$(azd env get-value AAD_APP_ID_URI)" \
   --app-id "$(azd env get-value AAD_APP_CLIENT_ID)" \
   --short-name "Coordinator" \
