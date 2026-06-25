@@ -10,7 +10,7 @@ Then do the following replacements in the `manifest.json` file:
 
 - Modify the `"id"` field to create your own unique app ID.
 - Update the `${{BOT_ID}}` with the bot ID of your Azure Bot Service. You can find it inside the `Configuration` tab under `Microsoft App ID`.
-- Update the `${{APP_SERVICE_DOMAIN}}` with the domain of your Azure App Service (e.g., `<app-service-name>.azurewebsites.net`).
+- Update the `${{APP_SERVICE_DOMAIN}}` placeholder with your **APIM gateway domain** (e.g., `<apim-name>.azure-api.net`). This is the public ingress that fronts the bot; the App Service sits behind it. (`build_manifest.sh` fills this from the `APIM_DOMAIN` azd output.)
 - Update the `"webApplicationInfo"` section with your App Registration details. Replace `${{APP_REGISTRATION_CLIENT_ID}}` with your App Registration's Client ID (made with your deployment that you can find in his `Overview` tab) and `${{APP_REGISTRATION_ID_URI}}` with your App Registration's ID URI (e.g., `api://<app-registration-client-id>`):
 
 ![App Registration details](./assets/app_registration_details.png)

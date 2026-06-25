@@ -1,6 +1,6 @@
 {
-    "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.23/MicrosoftTeams.schema.json",
-    "manifestVersion": "1.23",
+    "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.24/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.24",
     "version": "${{APP_VERSION}}",
     "id": "${{TEAMS_APP_ID}}",
     "developer": {
@@ -18,8 +18,8 @@
         "full": "${{APP_FULL_NAME}}"
     },
     "description": {
-        "short": "Help you to get Alfred to do tasks related to your company.",
-        "full": "Help you to get Alfred to do task related to your company data."
+        "short": "Help you to get ${{APP_SHORT_NAME}} to do tasks related to your company.",
+        "full": "Help you to get ${{APP_FULL_NAME}} to do tasks related to your company data."
     },
     "accentColor": "#FFFFFF",
     "copilotAgents": {

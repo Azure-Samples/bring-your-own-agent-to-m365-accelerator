@@ -68,31 +68,22 @@ provisioning, so it can be wired as the local APIM backend.
 #    SSO + Search OAuth connections. The prod bot is left untouched.
 azd provision
 
-# 3. Generate src/.env for the local run. Mints the local bot client secret with your az
-#    identity (cached in the azd env) and pulls Foundry/Search values from the outputs.
+# 3. Generate the repo-root .env. Mints the local bot client secret with your az identity
+#    (cached in the azd env) and pulls Foundry/Search values from the azd outputs.
 ./scripts/gen_local_env.sh
+
+# 4. Build and sideload the app package.
+./scripts/build_manifest.sh
+#    Upload appPackage/build/appPackage.zip in Teams
+#    (Apps > Manage your apps > Upload a custom app) or M365 Copilot.
 ```
 
 > If you provision **before** creating the tunnel, `LOCAL_TUNNEL_ENDPOINT` defaults to the
 > `https://localhost` placeholder and the local APIM backend won't reach your machine.
 > Run `./scripts/devtunnel.sh` first, then `azd provision` (or re-provision after).
-# 4. Generate the repo-root .env from the single .env.template.
-#    Auto mode: DEPLOY_DEV_BOT=true + dev bot creds => dev mode, otherwise smoke mode.
-./scripts/gen_local_env.sh
-
-# 5. Build and sideload the app package. With the dev bot deployed this produces a
-#    distinct dev app ('Alfred Dev', its own Teams app id) so it can sit next to prod.
-./scripts/build_manifest.sh
-#    Upload appPackage/build/appPackage.dev.zip in Teams
-#    (Apps > Manage your apps > Upload a custom app) or M365 Copilot.
-```
-
-> To provision **without** any dev resources (prod only): `azd env set DEPLOY_DEV_BOT false`
-> then `azd provision`. You can flip it back to `true` later and re-provision.
 >
-> You can also force the generated local mode explicitly:
-> `LOCAL_ENV_MODE=dev ./scripts/gen_local_env.sh` or
-> `LOCAL_ENV_MODE=smoke ./scripts/gen_local_env.sh`.
+> By default `gen_local_env.sh` produces the real local-bot env; pass `smoke` for an
+> anonymous env: `./scripts/gen_local_env.sh smoke`.
 
 ---
 
@@ -127,7 +118,7 @@ the azd env (`LOCAL_BOT_APP_SECRET`). The only external input is `LOCAL_TUNNEL_E
 | Concern | Prod bot (`bot-<suffix>`) | Local bot (`bot-local-<suffix>`) |
 | --- | --- | --- |
 | Bicep module | `modules/bot/bot-service.bicep` | `modules/bot/bot-service-local.bicep` |
-| Identity | UserAssignedMSI | SingleTenant app + secret (`LOCAL_BOT_ID`) |
+| Identity | UserAssignedMSI | SingleTenant app + secret (`LOCAL_BOT_APP_REGISTRATION_ID`) |
 | Secret source | n/a (managed identity) | minted locally by `gen_local_env.sh`, cached in azd env |
 | APIM API / path | `bot-proxy` `/bot` | `bot-proxy-local` `/bot-local` |
 | APIM backend | App Service URI | `LOCAL_TUNNEL_ENDPOINT` |
@@ -176,10 +167,12 @@ returns public documents only.
 
 ```bash
 az login
-LOCAL_ENV_MODE=smoke ./scripts/gen_local_env.sh
-cd src && uv run python main.py     # terminal 1 — agent on http://localhost:3978
-../scripts/run-test-tool.sh         # terminal 2 — local chat UI
+./scripts/gen_local_env.sh smoke
+cd src && uv run python main.py     # agent on http://localhost:3978/api/messages
 ```
+
+Then point the **Microsoft 365 Agents Playground / Teams App Test Tool** at
+`http://localhost:3978/api/messages` to chat with the agent.
 
 How it works: `AGENT_AUTH_MODE=anonymous` makes the app skip the SEARCH OAuth handler and
 pass no search token, and `CONNECTIONS__SERVICE_CONNECTION__SETTINGS__ANONYMOUS_ALLOWED=true`
