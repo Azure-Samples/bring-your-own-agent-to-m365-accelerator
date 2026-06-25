@@ -31,7 +31,7 @@ v() { printf '%s\n' "$ENV_VALUES" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d
 APP_VERSION="1.0.0"
 TEAMS_APP_ID=""
 BOT_ID="$(v BOT_ID)"
-DOMAIN="$(v BOT_DOMAIN)"
+DOMAIN="$(v APIM_DOMAIN)"
 APP_URI="$(v AAD_APP_ID_URI)"
 APP_ID="$(v AAD_APP_CLIENT_ID)"
 SHORT_NAME=""

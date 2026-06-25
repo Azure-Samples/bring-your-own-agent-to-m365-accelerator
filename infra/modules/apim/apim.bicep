@@ -27,3 +27,4 @@ resource apiManagement 'Microsoft.ApiManagement/service@2024-05-01' = {
 }
 
 output name string = apiManagement.name
+output apimDomain string = split(apiManagement.properties.gatewayUrl, 'https://')[1]

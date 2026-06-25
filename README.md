@@ -112,10 +112,9 @@ python ./scripts/seed_search_index.py
 
 ## Run the application
 
-You have 3 modes to run the application: 
+You have 2 modes to run the application: 
 - Production mode (deployed to Azure, real SSO + per-user ACLs)
 - Development / Debug mode (local Bot Service + Dev tunnel)
-- Anonymous mode (no SSO, no per-user ACLs)
 
 ### Production Mode
 
@@ -138,7 +137,7 @@ Update the `--teams-app-id` parameter with your own unique GUID.
   --app-version "1.0.3" \
   --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d453 \
   --bot-id "$(azd env get-value BOT_ID)" \
-  --domain "$(azd env get-value BOT_DOMAIN)" \
+  --domain "$(azd env get-value APIM_DOMAIN)" \
   --app-uri "$(azd env get-value AAD_APP_ID_URI)" \
   --app-id "$(azd env get-value AAD_APP_CLIENT_ID)" \
   --short-name "Coordinator" \
@@ -150,12 +149,60 @@ This will create the `appPackage.zip` file ìn the `appPackage/build` folder.
 
 Now follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) section
 
-### Anonymous Mode (no SSO, no per-user ACLs)
-
 ## Deploy to Teams and M365 Copilot
 
 ### Development / Debug Mode
 
+To run the application in development/debug mode, you need to set up a dev tunnel and run the local agent. 
+
+First, run the following command to login to the dev tunnel:
+
+```bash
+devtunnel user login -d
+```
+
+Then run the dev tunnel script to create a persistent dev tunnel for port 3978 and host it. This will write the `LOCAL_TUNNEL_ENDPOINT` to the azd environment. Leave it running in the background.
+
+```bash
+./scripts/devtunnel.sh
+```
+
+In a **new terminal** reprovision the Azure resources to update the local bot and APIM backend to use the dev tunnel endpoint:
+
+```bash
+azd provision
+```
+
+Generate src/.env for the local run. Mints the local bot client secret with your az identity (cached in the azd env) and pulls Foundry/Search values from the outputs.
+
+```bash
+./scripts/gen_local_env.sh
+```
+
+Finally, you can run the project locally by running the following command:
+
+```bash
+cd src && uv run python main.py
+```
+
+The teams app id is a unique GUID that you must keep to be able to update the app in the future. 
+
+Update the `--teams-app-id` parameter with your own unique GUID for the development and also the name.
+
+```bash
+./scripts/build_manifest.sh \
+  --app-version "1.0.0" \
+  --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d987 \
+  --bot-id "$(azd env get-value LOCAL_BOT_ID)" \
+  --domain "$(azd env get-value APIM_DOMAIN)" \
+  --app-uri "$(azd env get-value LOCAL_BOT_APP_REGISTRATION_URI)" \
+  --app-id "$(azd env get-value LOCAL_BOT_APP_REGISTRATION_ID)" \
+  --short-name "Spirou" \
+  --full-name "Spirou" \
+  --zip appPackage.dev.zip
+```
+
+Then, to be able to test you must upload the app package to Teams. Follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) section.
 
 ## Upload the app to Teams
 

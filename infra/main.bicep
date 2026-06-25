@@ -421,6 +421,7 @@ module localBotAppRegistration './modules/security/local-bot-app-registration.bi
   scope: resourceGroup
   params: {
     appName: localBotAppRegistrationName
+    botId: botUami.outputs.clientId
     ownerPrincipalId: deployer().objectId
   }
 }
@@ -578,22 +579,19 @@ output AZURE_TENANT_ID string = tenantId
 output BOT_ID string = botUami.outputs.clientId
 output BOT_SERVICE_NAME string = botService.outputs.botName
 output BOT_ENDPOINT string = botApiProd.outputs.messagingEndpoint
-output BOT_DOMAIN string = replace(teamsAgentAppService.outputs.uri, 'https://', '')
 
 // Local bot outputs (always deployed)
-output LOCAL_BOT_ID string = localBotAppRegistration.outputs.appId
+output LOCAL_BOT_APP_REGISTRATION_ID string = localBotAppRegistration.outputs.appId
+output LOCAL_BOT_APP_REGISTRATION_URI string = localBotAppRegistration.outputs.appIdUri
+output LOCAL_BOT_ID string = botUami.outputs.clientId
 output LOCAL_BOT_SERVICE_NAME string = botServiceLocal.outputs.botName
 output LOCAL_BOT_ENDPOINT string = botApiLocal.outputs.messagingEndpoint
-output LOCAL_BOT_DOMAIN string = replace(localTunnelEndpoint, 'https://', '')
-output LOCAL_BOT_AAD_APP_ID_URI string = localBotAppRegistration.outputs.appIdUri
 
 
 // App Registration outputs
 output AAD_APP_CLIENT_ID string = appRegistration.outputs.aadAppId
 output AAD_APP_ID_URI string = appRegistration.outputs.aadAppIdUri
 output FEDERATED_CREDENTIAL_NAME string = appRegistration.outputs.fciName
-
-// SharePoint indexer outputs
 
 // AI Search outputs
 output AZURE_SEARCH_ENDPOINT string = 'https://${aiSearch.outputs.name}.search.windows.net'
@@ -602,3 +600,6 @@ output AZURE_SEARCH_INDEX string = 'secure-docs'
 // Foundry outputs
 output FOUNDRY_PROJECT_ENDPOINT string = msFoundryProject.outputs.endpoint
 output MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME string = chatOrchestratorModel.name
+
+// APIM outputs
+output APIM_DOMAIN string = apiManagement.outputs.apimDomain
