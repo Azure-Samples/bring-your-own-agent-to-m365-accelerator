@@ -189,11 +189,20 @@ module aiSearch './modules/data/ai_search.bicep' = {
   name: 'aiSearch'
   scope: resourceGroup
   params: {
-    name: 'srch-${resourceSuffixKebabcase}'
+    name: 'search-${resourceSuffixKebabcase}'
     location: location
     tags: tags
-    skuName: 'standard'
-    semanticSearch: 'standard'
+  }
+}
+
+// RBAC: Search Index Data Contributor + Reader for bot identity
+module searchRoles './modules/security/search-roles.bicep' = {
+  name: 'searchRoles'
+  scope: resourceGroup
+  params: {
+    searchServiceName: aiSearch.outputs.name
+    principalId: botUami.outputs.principalId
+    deployerPrincipalId: deployer().objectId
   }
 }
 
@@ -254,27 +263,6 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
       AZURE_SEARCH_ENDPOINT: 'https://${aiSearch.outputs.name}.search.windows.net'
       AZURE_SEARCH_INDEX: 'secure-docs'
     }
-  }
-}
-
-module aiSearch './modules/data/ai_search.bicep' = {
-  name: 'aiSearch'
-  scope: resourceGroup
-  params: {
-    name: 'search-${resourceSuffixKebabcase}'
-    location: location
-    tags: tags
-  }
-}
-
-// RBAC: Search Index Data Contributor + Reader for bot identity
-module searchRoles './modules/security/search-roles.bicep' = {
-  name: 'searchRoles'
-  scope: resourceGroup
-  params: {
-    searchServiceName: aiSearch.outputs.name
-    principalId: botUami.outputs.principalId
-    deployerPrincipalId: deployer().objectId
   }
 }
 
@@ -420,7 +408,7 @@ module localBotAppRegistration './modules/security/local-bot-app-registration.bi
   name: 'localBotAppRegistration'
   scope: resourceGroup
   params: {
-    appName: localBotAppRegistrationName
+    appName: 'app-reg-local-${resourceSuffixKebabcase}'
     botId: botUami.outputs.clientId
     ownerPrincipalId: deployer().objectId
   }
@@ -442,7 +430,7 @@ module apiManagement './modules/apim/apim.bicep' = {
   name: 'apiManagement'
   scope: resourceGroup
   params: {
-    name: apimServiceName
+    name: 'apim-${resourceSuffixKebabcase}'
     location: location
     tags: tags
     publisherEmail: apimPublisherEmail

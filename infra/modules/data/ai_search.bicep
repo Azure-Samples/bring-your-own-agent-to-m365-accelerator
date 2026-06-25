@@ -42,3 +42,5 @@ resource aiSearchService 'Microsoft.Search/searchServices@2025-05-01' = {
 }
 
 output name string = aiSearchService.name
+output endpoint string = 'https://${aiSearchService.name}.search.windows.net'
+output id string = aiSearchService.id
