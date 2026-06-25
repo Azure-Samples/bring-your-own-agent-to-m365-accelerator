@@ -8,6 +8,7 @@ param botDisplayName string
 param messagingEndpoint string
 param logAnalyticsId string
 param appInsightsInstrumentationKey string
+param tags object = {}
 
 @description('Client (app) ID of the single-tenant local bot app registration.')
 param botAppId string
@@ -16,6 +17,7 @@ resource bot 'Microsoft.BotService/botServices@2022-09-15' = {
   name: botName
   location: 'global'
   kind: 'sdk'
+  tags: tags
   properties: {
     displayName: botDisplayName
     msaAppType: 'SingleTenant'

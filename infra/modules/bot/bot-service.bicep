@@ -4,6 +4,7 @@ param botIdentityName string
 param messagingEndpoint string
 param logAnalyticsId string
 param appInsightsInstrumentationKey string
+param tags object = {}
 
 resource botIdentity 'Microsoft.ManagedIdentity/userAssignedIdentities@2023-01-31' existing = {
   name: botIdentityName
@@ -13,6 +14,7 @@ resource bot 'Microsoft.BotService/botServices@2022-09-15' = {
   name: botName
   location: 'global'
   kind: 'sdk'
+  tags: tags
   properties: {
     displayName: botDisplayName
     msaAppType: 'UserAssignedMSI'
