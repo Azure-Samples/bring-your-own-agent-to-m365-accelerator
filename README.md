@@ -258,7 +258,7 @@ Update the `--teams-app-id` parameter with your own unique GUID for the developm
 
 ```bash
 ./scripts/build_manifest.sh \
-  --app-version "1.0.1" \
+  --app-version "1.0.0" \
   --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3a987 \
   --bot-id "$(azd env get-value LOCAL_BOT_APP_REGISTRATION_ID)" \
   --domain "$(azd env get-value APIM_DOMAIN)" \
