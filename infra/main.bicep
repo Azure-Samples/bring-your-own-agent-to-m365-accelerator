@@ -398,18 +398,32 @@ module localBotAppRegistration './modules/security/local-bot-app-registration.bi
   scope: resourceGroup
   params: {
     appName: 'app-reg-local-${resourceSuffixKebabcase}'
-    botId: botUami.outputs.clientId
     ownerPrincipalId: deployer().objectId
   }
 }
 
-// Create App Registration with all required parameters
+// Create App Registration with all required parameters (production SSO app).
 module appRegistration './modules/security/app-registration.bicep' = {
   name: 'deploy-app-registration'
   scope: resourceGroup
   params: {
     aadAppName: 'app-reg-${resourceSuffixKebabcase}'
     botId: botUami.outputs.clientId
+    tenantId: tenantId
+    tenantIdBase64Encoded: tenantIdBase64Encoded
+  }
+}
+
+// Dedicated SSO app registration for the LOCAL/dev environment — NOT shared with prod.
+// Its App ID URI is api://botid-<local bot app id> so it lines up with the local bot's
+// channel identity and the dev Teams manifest. Mirrors the per-environment SSO app of the
+// OfficeDev ProxyAgent sample (one SSO app per environment, no mix).
+module localAppRegistration './modules/security/app-registration.bicep' = {
+  name: 'deploy-app-registration-local'
+  scope: resourceGroup
+  params: {
+    aadAppName: 'app-reg-sso-local-${resourceSuffixKebabcase}'
+    botId: localBotAppRegistration.outputs.appId
     tenantId: tenantId
     tenantIdBase64Encoded: tenantIdBase64Encoded
   }
@@ -515,19 +529,19 @@ module botOAuthSearch './modules/security/bot-oauth-connection.bicep' = {
   }
 }
 
-// Local bot OAuth connections (SSO + Search). Same SSO app + federated credential as prod
-// (the FIC is bound to the connection's unique id, not to the bot identity), but the
-// token-exchange URI targets the local bot (api://botid-<localBotAppId>).
+// Local bot OAuth connections (SSO + Search). Same shape as the prod connections but bound
+// to the DEDICATED local SSO app (localAppRegistration) and attached to the local Bot
+// Service — no sharing with the prod SSO app. Each environment has its own SSO app + FIC.
 module botOAuthConnectionLocal './modules/security/bot-oauth-connection.bicep' = {
   name: 'deploy-bot-oauth-connection-user-local'
   scope: resourceGroup
   params: {
     botServiceName: botServiceLocal.outputs.botName
     connectionName: 'default_user_access_token'
-    aadAppId: localBotAppRegistration.outputs.appId
-    aadAppIdUri: localBotAppRegistration.outputs.appIdUri
-    federatedCredentialName: appRegistration.outputs.fciName
-    scopes: '${localBotAppRegistration.outputs.appIdUri}/access_as_user'
+    aadAppId: localAppRegistration.outputs.aadAppId
+    aadAppIdUri: localAppRegistration.outputs.aadAppIdUri
+    federatedCredentialName: localAppRegistration.outputs.fciName
+    scopes: '${localAppRegistration.outputs.aadAppIdUri}/access_as_user'
     tenantId: tenantId
     location: 'global'
   }
@@ -539,9 +553,9 @@ module botOAuthSearchLocal './modules/security/bot-oauth-connection.bicep' = {
   params: {
     botServiceName: botServiceLocal.outputs.botName
     connectionName: 'search_access_token'
-    aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.aadAppIdUri
-    federatedCredentialName: appRegistration.outputs.fciName
+    aadAppId: localAppRegistration.outputs.aadAppId
+    aadAppIdUri: localAppRegistration.outputs.aadAppIdUri
+    federatedCredentialName: localAppRegistration.outputs.fciName
     scopes: 'https://search.azure.com/user_impersonation'
     tenantId: tenantId
     location: 'global'
@@ -557,18 +571,23 @@ output BOT_ID string = botUami.outputs.clientId
 output BOT_SERVICE_NAME string = botService.outputs.botName
 output BOT_ENDPOINT string = botApiProd.outputs.messagingEndpoint
 
-// Local bot outputs (always deployed)
+// Local bot outputs (always deployed). The local bot's identity IS its single-tenant app
+// registration: this id is the Bot Service msaAppId, the runtime client id, and the Teams
+// manifest bot id. User sign-in (SSO) uses a DEDICATED local SSO app (LOCAL_AAD_APP_* outputs).
 output LOCAL_BOT_APP_REGISTRATION_ID string = localBotAppRegistration.outputs.appId
-output LOCAL_BOT_APP_REGISTRATION_URI string = localBotAppRegistration.outputs.appIdUri
-output LOCAL_BOT_ID string = botUami.outputs.clientId
 output LOCAL_BOT_SERVICE_NAME string = botServiceLocal.outputs.botName
 output LOCAL_BOT_ENDPOINT string = botApiLocal.outputs.messagingEndpoint
 
 
-// App Registration outputs
+// App Registration outputs (production SSO app)
 output AAD_APP_CLIENT_ID string = appRegistration.outputs.aadAppId
 output AAD_APP_ID_URI string = appRegistration.outputs.aadAppIdUri
 output FEDERATED_CREDENTIAL_NAME string = appRegistration.outputs.fciName
+
+// Local SSO app outputs (dedicated to the development / debug environment)
+output LOCAL_AAD_APP_CLIENT_ID string = localAppRegistration.outputs.aadAppId
+output LOCAL_AAD_APP_ID_URI string = localAppRegistration.outputs.aadAppIdUri
+output LOCAL_FEDERATED_CREDENTIAL_NAME string = localAppRegistration.outputs.fciName
 
 // AI Search outputs
 output AZURE_SEARCH_ENDPOINT string = 'https://${aiSearch.outputs.name}.search.windows.net'

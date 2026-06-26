@@ -22,9 +22,6 @@ param appName string
 @description('Object id of the principal (the deployer) made owner of this app so it can reset the client secret locally.')
 param ownerPrincipalId string
 
-@description('BotID this should match the Microsoft App ID in the Azure Bot Service Configuration')
-param botId string
-
 resource localBotApp 'Microsoft.Graph/applications@v1.0' = {
   displayName: appName
   uniqueName: appName
@@ -60,4 +57,3 @@ resource localBotServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
 output appId string = localBotApp.appId
 output appObjectId string = localBotApp.id
 output servicePrincipalId string = localBotServicePrincipal.id
-output appIdUri string = 'api://botid-${botId}'

@@ -27,8 +27,8 @@ v() { printf '%s\n' "$ENV_VALUES" | grep "^$1=" | head -1 | cut -d= -f2- | tr -d
 
 if [ "$MODE" = "local" ]; then
   # The local bot authenticates to Bot Service as its single-tenant app registration
-  # (bot-service-local.bicep: msaAppId = the app registration's appId). LOCAL_BOT_ID is the
-  # UAMI client id used only for the manifest, so mint/auth against the app registration.
+  # (bot-service-local.bicep: msaAppId = the app registration's appId). The Teams manifest
+  # bot id is this same app registration, so mint/auth against the app registration.
   LOCAL_BOT_APP_REG_ID="$(v LOCAL_BOT_APP_REGISTRATION_ID)"
   if [ -z "$LOCAL_BOT_APP_REG_ID" ]; then
     echo "LOCAL_BOT_APP_REGISTRATION_ID is empty. Run 'azd provision' first (it creates the local bot)," >&2

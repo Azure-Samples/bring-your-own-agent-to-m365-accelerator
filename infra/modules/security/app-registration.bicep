@@ -198,11 +198,60 @@ resource aadServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
   ]
 }
 
+// Existing first-party service principals (resource APIs) the SSO app calls.
+// Referenced so we can grant tenant-wide admin consent below.
+resource graphServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = {
+  appId: '00000003-0000-0000-c000-000000000000'
+}
+
+resource azureMlServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = {
+  appId: '18a66f5f-dbdf-4c17-9dd7-1634712a9cbe'
+}
+
+resource powerPlatformServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = {
+  appId: '8578e004-a5c6-46e7-913e-12f58912df43'
+}
+
+resource searchServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' existing = {
+  appId: '880da380-985e-4198-81b9-e05b1cc53158'
+}
+
+// Tenant-wide admin consent (AllPrincipals) for the delegated permissions declared in
+// requiredResourceAccess above. Without these grants the on-behalf-of token exchange
+// (e.g. the SEARCH connection) fails for every user and the agent loops on a sign-in card.
+// This replaces the manual `az ad app permission admin-consent` post-provision step.
+resource graphGrant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = {
+  clientId: aadServicePrincipal.id
+  consentType: 'AllPrincipals'
+  resourceId: graphServicePrincipal.id
+  scope: 'openid profile email offline_access'
+}
+
+resource azureMlGrant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = {
+  clientId: aadServicePrincipal.id
+  consentType: 'AllPrincipals'
+  resourceId: azureMlServicePrincipal.id
+  scope: 'user_impersonation'
+}
+
+resource powerPlatformGrant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = {
+  clientId: aadServicePrincipal.id
+  consentType: 'AllPrincipals'
+  resourceId: powerPlatformServicePrincipal.id
+  scope: 'CopilotStudio.Copilots.Invoke'
+}
+
+resource searchGrant 'Microsoft.Graph/oauth2PermissionGrants@v1.0' = {
+  clientId: aadServicePrincipal.id
+  consentType: 'AllPrincipals'
+  resourceId: searchServicePrincipal.id
+  scope: 'user_impersonation'
+}
+
 // Outputs for other modules
 output aadAppId string = aadApplication.appId
 output aadAppObjectId string = aadApplication.id
 output aadAppIdUri string = 'api://botid-${botId}'
 output servicePrincipalId string = aadServicePrincipal.id
-output servicePrincipalObjectId string = aadServicePrincipal.id
 output fciName string = federatedCredential.name
 output fciSubject string = myfciSubject
