@@ -8,25 +8,72 @@ This sample scripts are not supported under any Microsoft standard support progr
 
 This project is an M365 Agent Application built with Python, M365 Agent SDK and the Microsoft Agent Framework, deployable to Azure using the Azure Developer CLI (`azd`). It demonstrates how to build a secure enterprise agent with per-user document access control through Azure AI Search and Entra security groups.
 
+
 ```mermaid
-flowchart LR
-    User["Teams / M365 Copilot"] --> Bot["Azure Bot Service<br/>(App Registration + Managed Identity)"]
-    Bot -->|"Generate JWT and call /bot/api/messages"| APIM["APIM<br/>validate-jwt"]
-    APIM -->|"forward to /api/messages"| App["Orchestrator Agent"]
-    App -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
-    App --> Foundry["Microsoft Foundry"]
+sequenceDiagram
+    autonumber
+    %% Groups
+    box rgb(227, 242, 253) User
+        participant U as Copilot / Teams User
+    end
 
-    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
-    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92;
-    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:2px,color:#E65100;
-    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
-    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#880E4F;
+    box rgb(237, 231, 246) Microsoft 365 / Teams
+        participant M as Microsoft 365 Copilot & Teams
+    end
 
-    class User client;
-    class Bot bot;
-    class APIM gateway;
-    class App app;
-    class Search,Foundry ai;
+    box rgb(255, 243, 224) Azure Bot Platform
+        participant B as Azure Bot Service
+        participant T as Bot Token Service
+    end
+
+    box rgb(232, 245, 233) Custom Engine Agent - Azure Resource Group
+        participant AP as Azure APIM (Optional)
+        participant P as App Service / Agent App (M365 Agents SDK)
+    end
+
+    box rgb(252, 228, 236) Retrieval & Reasoning
+        participant S as Azure AI Search
+        participant G as Microsoft Graph
+        participant F as Microsoft Foundry (FoundryChatClient)
+    end
+
+    %% Inbound Message Flow
+    U->>M: User prompt<br/>(e.g., "Create a report")
+    M->>B: Send activity
+    B->>AP: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
+    AP->>AP: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
+    AP->>P: Forward activity to /api/messages
+
+    %% Search Token Exchange Flow
+    rect rgb(245, 245, 245)
+        Note over P,T: auth_handlers=["SEARCH"]
+        P->>B: get_token("SEARCH")
+        B->>M: Request SSO token (silent/consent)
+        M->>U: Silent sign-in or consent prompt
+        B->>T: Token exchange for search_access_token
+        T-->>P: Search token<br/>(aud=search.azure.com)
+    end
+
+    %% Per-User Retrieval Flow
+    rect rgb(245, 245, 245)
+        Note over P,G: Native ACL filtering in AI Search
+        P->>S: Query + x-ms-query-source-authorization
+        S->>G: Resolve user group memberships
+        G-->>S: User groups
+        S-->>P: ACL-filtered documents
+    end
+
+    %% Agent + LLM Flow
+    rect rgb(245, 245, 245)
+        Note over P,F: Orchestration and streaming response
+        P->>F: FoundryChatClient.run<br/>question + filtered docs
+        F-->>P: Streaming response chunks
+    end
+
+    %% Outbound Reply Flow (direct, not via APIM)
+    P-->>B: Reply activities (Bot Connector path)
+    B-->>M: Stream content
+    M-->>U: Display result progressively
 ```
 
 ## Prerequisites
@@ -160,6 +207,27 @@ the managed identity that the deployed app relies on.
 > **dedicated local** SSO app in development — each environment is self-contained.
 
 ### Production Mode
+
+```mermaid
+flowchart LR
+    User["Teams / M365 Copilot"] --> Bot["Azure Bot Service<br/>(App Registration + Managed Identity)"]
+    Bot -->|"Generate JWT and call /bot/api/messages"| APIM["APIM<br/>validate-jwt"]
+    APIM -->|"forward to /api/messages"| App["Orchestrator Agent"]
+    App -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
+    App --> Foundry["Microsoft Foundry"]
+
+    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
+    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92;
+    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:2px,color:#E65100;
+    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
+    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#880E4F;
+
+    class User client;
+    class Bot bot;
+    class APIM gateway;
+    class App app;
+    class Search,Foundry ai;
+```
 
 First, run the following command to deploy the application to Azure:
 
@@ -299,7 +367,7 @@ Then, to be able to test you must upload the app package to Teams. Follow the [U
 
 To upload the app to Teams, follow these steps:
 
-Open `https://admin.teams.microsoft.com/policies/manage-apps` and sign in with your Microsoft 365 account.
+Open [https://admin.teams.microsoft.com/policies/manage-apps](https://admin.teams.microsoft.com/policies/manage-apps) and sign in with your Microsoft 365 account.
 
 Upload the `.zip` file you created in the previous step:
 
@@ -311,74 +379,13 @@ Then give acces to your testing user or group:
 
 By picking only one group or user, the propagation of the app will be faster.
 
+## Update an existing app
 
+When the app is already uploaded in the Teams admin center, keep the same Teams app id and only rebuild the package with a higher `--app-version`. Use `TEAMS_APP_ID` for the production app and `TEAMS_APP_ID_DEV` for the development/debug app; changing this id creates a new app instead of updating the existing one.
 
-```mermaid
-sequenceDiagram
-    autonumber
-    %% Groups
-    box rgb(227, 242, 253) User
-        participant U as Copilot / Teams User
-    end
+Open the existing app from **Teams apps > Manage apps**, then use **Upload file** in the **New version** section and select the new `.zip` package. This updates the same catalog app for both Teams and Microsoft 365 Copilot, while keeping the current user or group assignment.
 
-    box rgb(237, 231, 246) Microsoft 365 / Teams
-        participant M as Microsoft 365 Copilot & Teams
-    end
-
-    box rgb(255, 243, 224) Azure Bot Platform
-        participant B as Azure Bot Service
-        participant T as Bot Token Service
-    end
-
-    box rgb(232, 245, 233) Custom Engine Agent - Azure Resource Group
-        participant AP as Azure APIM (Optional)
-        participant P as App Service / Agent App (M365 Agents SDK)
-    end
-
-    box rgb(252, 228, 236) Retrieval & Reasoning
-        participant S as Azure AI Search
-        participant G as Microsoft Graph
-        participant F as Microsoft Foundry (FoundryChatClient)
-    end
-
-    %% Inbound Message Flow
-    U->>M: User prompt<br/>(e.g., "Create a report")
-    M->>B: Send activity
-    B->>AP: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
-    AP->>AP: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
-    AP->>P: Forward activity to /api/messages
-
-    %% Search Token Exchange Flow
-    rect rgb(245, 245, 245)
-        Note over P,T: auth_handlers=["SEARCH"]
-        P->>B: get_token("SEARCH")
-        B->>M: Request SSO token (silent/consent)
-        M->>U: Silent sign-in or consent prompt
-        B->>T: Token exchange for search_access_token
-        T-->>P: Search token<br/>(aud=search.azure.com)
-    end
-
-    %% Per-User Retrieval Flow
-    rect rgb(245, 245, 245)
-        Note over P,G: Native ACL filtering in AI Search
-        P->>S: Query + x-ms-query-source-authorization
-        S->>G: Resolve user group memberships
-        G-->>S: User groups
-        S-->>P: ACL-filtered documents
-    end
-
-    %% Agent + LLM Flow
-    rect rgb(245, 245, 245)
-        Note over P,F: Orchestration and streaming response
-        P->>F: FoundryChatClient.run<br/>question + filtered docs
-        F-->>P: Streaming response chunks
-    end
-
-    %% Outbound Reply Flow (direct, not via APIM)
-    P-->>B: Reply activities (Bot Connector path)
-    B-->>M: Stream content
-    M-->>U: Display result progressively
-```
+![Update an existing app in Teams admin center](./docs/update_existing_app_admin_center.png)
 
 ## References
 
