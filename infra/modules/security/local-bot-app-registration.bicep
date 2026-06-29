@@ -5,7 +5,7 @@
 //                 Azure Bot Service with a CLIENT SECRET, because the agent runs on a
 //                 laptop/dev container behind a dev tunnel and a managed identity is only
 //                 available when running in Azure (that is what the prod bot uses).
-//   • SSO app   = modules/security/app-registration.bicep handles *user* authentication
+//   • SSO app   = modules/security/sso-app-registration.bicep handles *user* authentication
 //                 via federated credentials (no secret) and is shared by prod + local.
 //
 // The client secret is NOT created here: Bicep cannot generate or output an Entra secret
@@ -54,6 +54,8 @@ resource localBotServicePrincipal 'Microsoft.Graph/servicePrincipals@v1.0' = {
   ]
 }
 
-output appId string = localBotApp.appId
+// appId = the local bot's Microsoft App ID (msaAppId). Surfaced as LOCAL_BOT_ID. Read from
+// the service principal (created after the app) to avoid the Graph appId-not-ready race.
+output appId string = localBotServicePrincipal.appId
 output appObjectId string = localBotApp.id
 output servicePrincipalId string = localBotServicePrincipal.id
