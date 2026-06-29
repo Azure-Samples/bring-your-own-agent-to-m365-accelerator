@@ -77,7 +77,7 @@ Be concise and professional. Cite the document title when referencing informatio
             enable_live_metrics=True,
         )
 
-        logger.info("Observability is set up. Starting Orchestrator Agent...")
+        logger.info("Starting Orchestrator Agent... (Azure Monitor observability enabled)")
 
         agent_detail = project.agents.create_version(
             agent_name="Orchestrator",
