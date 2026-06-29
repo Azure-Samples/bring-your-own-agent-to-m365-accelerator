@@ -10,7 +10,7 @@ Usage:
 Requires:
     AZURE_SEARCH_ENDPOINT=https://<search-service>.search.windows.net
     AZURE_SEARCH_INDEX=secure-docs  (optional, defaults to 'secure-docs')
-    CONTOSO_GROUP_MARKETING_ID=<Entra group object ID for restricted docs>
+    CONTOSO_GROUP_RESTRICTED_DOCS_ID=<Entra group object ID for restricted docs>
 """
 
 import os
@@ -34,18 +34,18 @@ INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX", "secure-docs")
 CREDENTIAL = DefaultAzureCredential()
 
 # Entra group ID (not individual user OID — best practice)
-MARKETING_GROUP_ID = os.environ.get("CONTOSO_GROUP_MARKETING_ID", "")
+RESTRICTED_DOCS_GROUP_ID = os.environ.get("CONTOSO_GROUP_RESTRICTED_DOCS_ID", "")
 
-if not MARKETING_GROUP_ID:
-    print("Set CONTOSO_GROUP_MARKETING_ID environment variable.")
+if not RESTRICTED_DOCS_GROUP_ID:
+    print("Set CONTOSO_GROUP_RESTRICTED_DOCS_ID environment variable.")
     print("Create one Entra security group, add the test users, and use its Object ID.")
     sys.exit(1)
 
 DOCUMENTS = [
-    # ── Marketing documents (same Entra group in this simplified POC) ──
+    # ── Restricted documents (all tagged to the Contoso-RestrictedDocs Entra group in this simplified POC) ──
     {
         "id": "pm-budget-q3",
-        "group_ids": [MARKETING_GROUP_ID],
+        "group_ids": [RESTRICTED_DOCS_GROUP_ID],
         "title": "Q3 2026 Event Budget Tracker",
         "content": (
             "Project Alpha — Annual Sales Kickoff (Paris, Sept 15-17)\n"
@@ -61,7 +61,7 @@ DOCUMENTS = [
     },
     {
         "id": "pm-vendor-contracts",
-        "group_ids": [MARKETING_GROUP_ID],
+        "group_ids": [RESTRICTED_DOCS_GROUP_ID],
         "title": "Vendor Contracts & SLAs — Active",
         "content": (
             "1. Marriott Champs-Élysées — Contract signed 2026-03-01, cancellation penalty 50% if <30 days.\n"
@@ -73,7 +73,7 @@ DOCUMENTS = [
     },
     {
         "id": "pm-risk-register",
-        "group_ids": [MARKETING_GROUP_ID],
+        "group_ids": [RESTRICTED_DOCS_GROUP_ID],
         "title": "Risk Register — Project Alpha",
         "content": (
             "R1 — Venue unavailability (Impact: High, Likelihood: Low): Backup venue identified at Pullman Tour Eiffel.\n"
@@ -85,7 +85,7 @@ DOCUMENTS = [
     },
     {
         "id": "mktg-campaign-plan",
-        "group_ids": [MARKETING_GROUP_ID],
+        "group_ids": [RESTRICTED_DOCS_GROUP_ID],
         "title": "Marketing Campaign Plan — Sales Kickoff 2026",
         "content": (
             "Objective: Generate internal buzz + 3 external press mentions.\n"
@@ -98,7 +98,7 @@ DOCUMENTS = [
     },
     {
         "id": "mktg-brand-guidelines",
-        "group_ids": [MARKETING_GROUP_ID],
+        "group_ids": [RESTRICTED_DOCS_GROUP_ID],
         "title": "Brand Guidelines — Event Communications",
         "content": (
             "Logo: Use Contoso primary logo (blue) on white backgrounds. Minimum size: 24px height.\n"
@@ -111,7 +111,7 @@ DOCUMENTS = [
     },
     {
         "id": "mktg-social-content",
-        "group_ids": [MARKETING_GROUP_ID],
+        "group_ids": [RESTRICTED_DOCS_GROUP_ID],
         "title": "Social Media Content Calendar — September 2026",
         "content": (
             "Sept 1 — LinkedIn: 'Save the date' post with event visual. Target: 10k impressions.\n"
@@ -190,8 +190,8 @@ def upload_documents():
     for doc in DOCUMENTS:
         group_display = doc["group_ids"][0] if len(
             doc["group_ids"]) == 1 else str(doc["group_ids"])
-        if group_display == MARKETING_GROUP_ID:
-            group_display = f"Marketing Group ({MARKETING_GROUP_ID})"
+        if group_display == RESTRICTED_DOCS_GROUP_ID:
+            group_display = f"Restricted Docs Group ({RESTRICTED_DOCS_GROUP_ID})"
         print(f"  {doc['title']} -> {group_display}")
 
 
