@@ -349,7 +349,8 @@ sequenceDiagram
     AP->>P: Forward activity to /api/messages
 
     %% Search Token Exchange Flow
-    loop auth_handlers=["SEARCH"]
+    rect rgb(245, 245, 245)
+        Note over P,T: auth_handlers=["SEARCH"]
         P->>B: get_token("SEARCH")
         B->>M: Request SSO token (silent/consent)
         M->>U: Silent sign-in or consent prompt
@@ -358,7 +359,8 @@ sequenceDiagram
     end
 
     %% Per-User Retrieval Flow
-    loop Native ACL filtering in AI Search
+    rect rgb(245, 245, 245)
+        Note over P,G: Native ACL filtering in AI Search
         P->>S: Query + x-ms-query-source-authorization
         S->>G: Resolve user group memberships
         G-->>S: User groups
@@ -366,7 +368,8 @@ sequenceDiagram
     end
 
     %% Agent + LLM Flow
-    loop Orchestration and streaming response
+    rect rgb(245, 245, 245)
+        Note over P,F: Orchestration and streaming response
         P->>F: FoundryChatClient.run<br/>question + filtered docs
         F-->>P: Streaming response chunks
     end
