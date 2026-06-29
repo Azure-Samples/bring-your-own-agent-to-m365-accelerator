@@ -41,7 +41,7 @@ from openpyxl import load_workbook
 load_dotenv()
 
 SEARCH_ENDPOINT = os.environ["AZURE_SEARCH_ENDPOINT"]
-SEARCH_INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX_NAME", "documents-index")
+SEARCH_INDEX_NAME = os.getenv("AZURE_SEARCH_INDEX", "documents-index")
 SEMANTIC_CONFIG_NAME = os.getenv(
     "AZURE_SEARCH_SEMANTIC_CONFIG_NAME", "default-semantic-config")
 # If set, key-based auth is used; otherwise DefaultAzureCredential (recommended)
@@ -49,7 +49,7 @@ SEARCH_API_KEY = os.getenv("AZURE_SEARCH_API_KEY")
 
 # Azure AI Foundry – embedding model configuration
 # OpenAI-compatible endpoint exposed by the AI Services resource
-AZURE_AI_FOUNDRY_ENDPOINT = os.environ["AZURE_AI_FOUNDRY_ENDPOINT"]
+FOUNDRY_PROJECT_ENDPOINT = os.environ["MS_FOUNDRY_PROJECT_ENDPOINT"]
 AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT = os.getenv(
     "AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT", "text-embedding-3-small"
 )
@@ -181,7 +181,7 @@ def create_or_update_index(index_client: SearchIndexClient) -> None:
             AzureOpenAIVectorizer(
                 vectorizer_name="default-openai-vectorizer",
                 parameters=AzureOpenAIVectorizerParameters(
-                    resource_url=AZURE_AI_FOUNDRY_ENDPOINT,
+                    resource_url=FOUNDRY_PROJECT_ENDPOINT,
                     deployment_name=AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT,
                     model_name=AZURE_AI_FOUNDRY_EMBEDDING_DEPLOYMENT,
                 ),
@@ -220,7 +220,7 @@ def _get_embeddings_client() -> AzureOpenAI:
         "https://cognitiveservices.azure.com/.default",
     )
     return AzureOpenAI(
-        azure_endpoint=AZURE_AI_FOUNDRY_ENDPOINT,
+        azure_endpoint=FOUNDRY_PROJECT_ENDPOINT,
         azure_ad_token_provider=token_provider,
         api_version=AZURE_AI_FOUNDRY_API_VERSION,
     )

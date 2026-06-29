@@ -30,7 +30,7 @@ cp .env.example .env
 | Variable | Description | Required |
 |---|---|---|
 | `AZURE_SEARCH_ENDPOINT` | AI Search service URL | Yes |
-| `AZURE_SEARCH_INDEX_NAME` | Index name (default: `documents-index`) | No |
+| `AZURE_SEARCH_INDEX` | Index name (default: `documents-index`) | No |
 | `AZURE_SEARCH_API_KEY` | Admin key (if not using managed identity) | No |
 
 ## Usage
