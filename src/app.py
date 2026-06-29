@@ -14,41 +14,30 @@ from os import environ
 
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
-from microsoft_agents.activity import load_configuration_from_env
+from microsoft_agents.activity import ChannelId, load_configuration_from_env
 from microsoft_agents.authentication.msal import MsalConnectionManager
 from microsoft_agents.hosting.aiohttp import CloudAdapter
 from microsoft_agents.hosting.core import (
     AgentApplication,
     Authorization,
     MemoryStorage,
+    Middleware,
     TurnContext,
     TurnState,
 )
 
 from agents.orchestrator import OrchestratorAgent
-from utils import acquire_token, decode_token_claims, send_agent_response, stream_agent_response
+from utils import acquire_token, decode_token_claims, stream_agent_response
 
 load_dotenv()
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 logger = logging.getLogger("app")
 
 # Runtime diagnostic logging — set ENABLE_DIAG_LOGS=false to silence.
 DIAG = environ.get("ENABLE_DIAG_LOGS", "true").lower() == "true"
-# ⚠️ SECURITY: dumps RAW tokens to logs. Debug/sandbox ONLY. Set to false (default) for prod.
-DUMP_RAW_TOKENS = environ.get("ENABLE_RAW_TOKEN_DUMP", "false").lower() == "true"
 diag_logger = logging.getLogger("diag")
-
-# ── Run mode ──
-# AGENT_AUTH_MODE selects how the agent authenticates:
-#   "bot"       (default) — full Bot Framework JWT validation + SSO/Search OAuth.
-#                Used in Azure (prod) and in the dev-tunnel-behind-APIM local loop.
-#   "anonymous"           — SMOKE TEST ONLY: no JWT validation, no SSO, no APIM.
-#                Lets you verify the app boots and answers on its own (Foundry via
-#                `az login`). It is NOT a substitute for the real test path: there is
-#                no per-user search token, so AI Search returns public documents only.
-AUTH_MODE = environ.get("AGENT_AUTH_MODE", "bot").strip().lower()
-ANONYMOUS_MODE = AUTH_MODE == "anonymous"
 
 # ── SDK configuration ──
 
@@ -56,6 +45,25 @@ agents_sdk_config = load_configuration_from_env(environ)
 STORAGE = MemoryStorage()
 CONNECTION_MANAGER = MsalConnectionManager(**agents_sdk_config)
 ADAPTER = CloudAdapter(connection_manager=CONNECTION_MANAGER)
+
+
+# Microsoft 365 Copilot delivers activities on channel id "msteams:COPILOT". The Bot
+# Framework token service stores the OAuth token under the base channel ("msteams", used by
+# the sign-in resource), but the SDK's GetToken retrieval keeps the ":COPILOT" sub-channel
+# and returns 404 — leaving the per-user search token empty, so AI Search skips ACL
+# filtering and only public ("all") documents come back. Normalizing the channel id at the
+# very start of the turn (before sign-in, flow state, token cache, and token retrieval)
+# keeps them consistent so the token is found.
+class _NormalizeCopilotChannelMiddleware(Middleware):
+    async def on_turn(self, context: TurnContext, logic):
+        channel = context.activity.channel_id
+        base = getattr(channel, "channel", None)
+        if base and str(channel) != base:
+            context.activity.channel_id = ChannelId(base)
+        await logic()
+
+
+ADAPTER.use(_NormalizeCopilotChannelMiddleware())
 AUTHORIZATION = Authorization(STORAGE, CONNECTION_MANAGER, **agents_sdk_config)
 
 AGENT_APP = AgentApplication[TurnState](
@@ -86,7 +94,10 @@ async def get_agent() -> OrchestratorAgent:
 
 @AGENT_APP.on_sign_in_success
 async def on_sign_in_success(context: TurnContext, state: TurnState, handler_id: str = None):
-    pass
+    # No user-visible message here: this fires on every turn the SEARCH handler re-acquires
+    # the token (silent SSO), not only on the first sign-in. The answer to the original
+    # message is delivered by the SDK's continuation replay instead.
+    return
 
 
 @AGENT_APP.on_sign_in_failure
@@ -112,15 +123,40 @@ async def on_install(context: TurnContext, state: TurnState):
     return
 
 
+# ── Diagnostic commands (mirror the M365 Agents ProxyAgent sample) ──
+
+SIGN_OUT_COMMAND = "--signout"
+CLEAR_CACHE_COMMAND = "--clearcache"
+
+
+# Type "--signout" to clear the cached SSO/Search tokens so the next message
+# triggers a fresh sign-in. Needed to pick up Entra group membership changes,
+# since AI Search resolves document ACLs from the user's group claims.
+@AGENT_APP.message(SIGN_OUT_COMMAND)
+async def on_sign_out(context: TurnContext, state: TurnState):
+    for handler_id in ("SSO", "SEARCH"):
+        try:
+            await AUTHORIZATION.sign_out(context, auth_handler_id=handler_id)
+        except Exception as e:
+            logger.warning("Sign-out failed for handler %s: %s", handler_id, e)
+    await context.send_activity("You have signed out")
+
+
+# Type "--clearcache" to drop the cached orchestrator agent so it is rebuilt on
+# the next message (e.g. to pick up new Foundry agent or tool configuration).
+@AGENT_APP.message(CLEAR_CACHE_COMMAND)
+async def on_clear_cache(context: TurnContext, state: TurnState):
+    global _AGENT
+    async with _AGENT_LOCK:
+        _AGENT = None
+    await context.send_activity("The agent model cache has been cleared.")
+
+
 # ── Message handler ──
 
-# In anonymous smoke-test mode there is no Bot Service to perform the SSO token
-# exchange, so register the handler without auth handlers. In bot mode the SEARCH
-# OAuth handler runs the on-behalf-of flow to obtain the per-user search token.
-_message_kwargs = {} if ANONYMOUS_MODE else {"auth_handlers": ["SEARCH"]}
-
-
-@AGENT_APP.activity("message", **_message_kwargs)
+# The SEARCH OAuth handler runs the on-behalf-of flow to obtain the per-user
+# search token before the message handler executes.
+@AGENT_APP.activity("message", auth_handlers=["SEARCH"])
 async def on_message(context: TurnContext, state: TurnState):
     user_message = context.activity.text or ""
     if not user_message.strip():
@@ -134,8 +170,7 @@ async def on_message(context: TurnContext, state: TurnState):
         channel_raw = getattr(act.channel_id, "channel_id", act.channel_id)
         channel_norm = getattr(act.channel_id, "channel", act.channel_id)
         diag_logger.info(
-            "DIAG inbound | mode=%s | user=%s | aadObjectId=%s | channel_raw=%s | channel_norm=%s | conversation=%s",
-            AUTH_MODE,
+            "DIAG inbound | user=%s | aadObjectId=%s | channel_raw=%s | channel_norm=%s | conversation=%s",
             user_name,
             getattr(act.from_property, "aad_object_id", None),
             channel_raw,
@@ -143,11 +178,7 @@ async def on_message(context: TurnContext, state: TurnState):
             act.conversation.id if act.conversation else None,
         )
 
-    # Anonymous smoke-test mode: no SSO, so no per-user search token (public docs only).
-    if ANONYMOUS_MODE:
-        search_token = None
-    else:
-        search_token = await acquire_token(AGENT_APP, context, "SEARCH", user_name)
+    search_token = await acquire_token(AGENT_APP, context, "SEARCH", user_name)
 
     if DIAG:
         if search_token:
@@ -161,22 +192,15 @@ async def on_message(context: TurnContext, state: TurnState):
                 claims.get("upn") or claims.get("unique_name"),
                 claims.get("exp"),
             )
-            if DUMP_RAW_TOKENS:
-                diag_logger.warning("DIAG_RAW search_token | user=%s | RAW=%s", user_name, search_token)
         else:
-            diag_logger.warning("DIAG search_token MISSING | user=%s (consent not completed?)", user_name)
+            diag_logger.warning(
+                "DIAG search_token MISSING | user=%s (consent not completed?)", user_name)
 
     try:
         agent = await get_agent()
-        if context.streaming_response is not None:
-            await stream_agent_response(
-                agent, context, user_message, context.activity.conversation.id, search_token
-            )
-        else:
-            # Non-streaming channels (Teams App Test Tool / Agents Playground smoke test).
-            await send_agent_response(
-                agent, context, user_message, context.activity.conversation.id, search_token
-            )
+        await stream_agent_response(
+            agent, context, user_message, context.activity.conversation.id, search_token
+        )
     except Exception as e:
         logger.error("Agent processing error: %s", e)
         traceback.print_exc()

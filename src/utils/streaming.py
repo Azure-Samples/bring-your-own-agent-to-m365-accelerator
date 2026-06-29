@@ -46,29 +46,3 @@ async def stream_agent_response(
         await context.streaming_response.wait_for_queue()
     except Exception as e:
         logger.debug("Streaming queue completed: %s", e)
-
-
-async def send_agent_response(
-    agent: OrchestratorAgent,
-    context: TurnContext,
-    user_message: str,
-    conversation_id: str,
-    search_token: str | None,
-):
-    """Run the agent and send the full response as a single activity.
-
-    Fallback for channels that do not support streaming (e.g. the Teams App Test
-    Tool / Microsoft 365 Agents Playground used for the anonymous smoke test).
-    Accumulates the agent's text and sends one message instead of incremental chunks.
-    """
-    parts: list[str] = []
-    async for chunk in agent.invoke(
-        user_input=user_message,
-        conversation_id=conversation_id,
-        user_search_token=search_token,
-    ):
-        if chunk.agent_response and chunk.agent_response.text:
-            parts.append(chunk.agent_response.text)
-
-    reply = "".join(parts).strip() or "(no response)"
-    await context.send_activity(reply)
