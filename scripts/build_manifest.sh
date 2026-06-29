@@ -12,10 +12,10 @@ All values fall back to the current azd environment when not provided.
 Options:
   --app-version <version>  App version (default: 1.0.0)
   --teams-app-id <id>   Teams app ID to embed in the manifest
-  --bot-id <id>         Bot registration ID
+  --bot-id <id>         Bot Microsoft App ID (manifest bots[].botId)
   --domain <host>       App Service domain (without scheme)
-  --app-uri <uri>       AAD app ID URI
-  --app-id <id>         AAD app client ID
+  --app-uri <uri>       SSO app ID URI (manifest webApplicationInfo.resource)
+  --app-id <id>         SSO app client ID (manifest webApplicationInfo.id)
   --app-name <name>     Display name  (default: app short name)
   --short-name <name>   Short name
   --full-name <name>    Full name
@@ -32,8 +32,8 @@ APP_VERSION="1.0.0"
 TEAMS_APP_ID=""
 BOT_ID="$(v BOT_ID)"
 DOMAIN="$(v APIM_DOMAIN)"
-APP_URI="$(v AAD_APP_ID_URI)"
-APP_ID="$(v AAD_APP_CLIENT_ID)"
+APP_URI="$(v SSO_APP_ID_URI)"
+APP_ID="$(v SSO_APP_ID)"
 SHORT_NAME=""
 FULL_NAME=""
 ZIP="appPackage.zip"
@@ -68,8 +68,8 @@ sed -e "s|\${{APP_VERSION}}|$APP_VERSION|g" \
     -e "s|\${{APP_FULL_NAME}}|$FULL_NAME|g" \
     -e "s|\${{BOT_ID}}|$BOT_ID|g" \
     -e "s|\${{APP_SERVICE_DOMAIN}}|$DOMAIN|g" \
-    -e "s|\${{APP_REGISTRATION_CLIENT_ID}}|$APP_ID|g" \
-    -e "s|\${{APP_REGISTRATION_ID_URI}}|$APP_URI|g" \
+    -e "s|\${{SSO_APP_ID}}|$APP_ID|g" \
+    -e "s|\${{SSO_APP_ID_URI}}|$APP_URI|g" \
     appPackage/manifest.tpl.json > appPackage/build/manifest.json
 
 cp appPackage/color.png appPackage/outline.png appPackage/build/

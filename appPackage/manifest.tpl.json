@@ -72,7 +72,7 @@
         "token.botframework.com"
     ],
     "webApplicationInfo": {
-        "id": "${{APP_REGISTRATION_CLIENT_ID}}",
-        "resource": "${{APP_REGISTRATION_ID_URI}}"
+        "id": "${{SSO_APP_ID}}",
+        "resource": "${{SSO_APP_ID_URI}}"
     }
 }
