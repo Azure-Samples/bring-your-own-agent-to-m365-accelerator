@@ -8,6 +8,9 @@
     "location": {
       "value": "${AZURE_LOCATION}"
     },
+    "searchLocation": {
+      "value": "${SEARCH_LOCATION=}"
+    },
     "tenantIdBase64Encoded": {
       "value": "${AZURE_TENANT_ID_BASE64_ENCODED}"
     },

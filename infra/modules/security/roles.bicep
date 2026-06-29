@@ -133,14 +133,21 @@ var searchIndexDataContributorRoleId = subscriptionResourceId(
   '8ebe5a00-799e-43f5-93ac-243d3dce84a7'
 )
 
+var legacySearchIndexDataContributorLabels = [
+  'teams-agent'
+  'current-user'
+]
+
 resource aiSearchIndexDataContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for assignment in searchIndexDataContributorAssignments: if (!empty(assignment.principalId)) {
-    name: guid(
-      aiSearch.id,
-      assignment.principalId,
-      searchIndexDataContributorRoleId,
-      'search-index-data-contributor-${assignment.principalLabel}'
-    )
+    name: contains(legacySearchIndexDataContributorLabels, assignment.principalLabel)
+      ? guid(aiSearch.id, assignment.principalId, searchIndexDataContributorRoleId)
+      : guid(
+          aiSearch.id,
+          assignment.principalId,
+          searchIndexDataContributorRoleId,
+          'search-index-data-contributor-${assignment.principalLabel}'
+        )
     scope: aiSearch
     properties: {
       roleDefinitionId: searchIndexDataContributorRoleId
@@ -156,14 +163,20 @@ var searchServiceContributorRoleId = subscriptionResourceId(
   '7ca78c08-252a-4471-8644-bb5ff32d4ba0'
 )
 
+var legacySearchServiceContributorLabels = [
+  'teams-agent'
+]
+
 resource aiSearchServiceContributorRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = [
   for assignment in searchServiceContributorAssignments: if (!empty(assignment.principalId)) {
-    name: guid(
-      aiSearch.id,
-      assignment.principalId,
-      searchServiceContributorRoleId,
-      'search-service-contributor-${assignment.principalLabel}'
-    )
+    name: contains(legacySearchServiceContributorLabels, assignment.principalLabel)
+      ? guid(aiSearch.id, assignment.principalId, searchServiceContributorRoleId)
+      : guid(
+          aiSearch.id,
+          assignment.principalId,
+          searchServiceContributorRoleId,
+          'search-service-contributor-${assignment.principalLabel}'
+        )
     scope: aiSearch
     properties: {
       roleDefinitionId: searchServiceContributorRoleId
