@@ -1,20 +1,20 @@
-# 🤖 M365 Copilot Pro Code Approach
+# M365 Copilot Pro Code Approach
 
-## ⚠️ Disclaimer
+## Disclaimer
 
 This sample scripts are not supported under any Microsoft standard support program or service. The sample script is provided AS IS without warranty of any kind. Microsoft further disclaims all implied warranties including, without limitation, any implied warranties of merchantability or of fitness for a particular purpose. The entire risk arising out of the use or performance of the sample scripts and documentation remains with you. In no event shall Microsoft, its authors, or anyone else involved in the creation, production, or delivery of the scripts be liable for any damages whatsoever (including, without limitation, damages for loss of business profits, business interruption, loss of business information, or other pecuniary loss) arising out of the use of or inability to use the sample scripts or documentation, even if Microsoft has been advised of the possibility of such damages.
 
-## 🏛️ Architecture
+## Architecture
 
 This project is an M365 Agent Application built with Python, M365 Agent SDK and the Microsoft Agent Framework, deployable to Azure using the Azure Developer CLI (`azd`). It demonstrates how to build a secure enterprise agent with per-user document access control through Azure AI Search and Entra security groups.
 
 ```mermaid
 flowchart LR
-    User["👤 Teams / M365 Copilot"] --> Bot["🤖 Azure Bot Service<br/>(App Registration + Managed Identity)"]
-    Bot -->|"🔑 Generate JWT and call /bot/api/messages"| APIM["🚦 APIM<br/>validate-jwt"]
-    APIM -->|"➡️ forward to /api/messages"| App["🧠 Orchestrator Agent"]
-    App -->|"🔐 SSO + Search token"| Search["🔎 AI Search (per-user ACLs)"]
-    App --> Foundry["✨ Microsoft Foundry"]
+    User["Teams / M365 Copilot"] --> Bot["Azure Bot Service<br/>(App Registration + Managed Identity)"]
+    Bot -->|"Generate JWT and call /bot/api/messages"| APIM["APIM<br/>validate-jwt"]
+    APIM -->|"forward to /api/messages"| App["Orchestrator Agent"]
+    App -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
+    App --> Foundry["Microsoft Foundry"]
 
     classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
     classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92;
@@ -29,7 +29,7 @@ flowchart LR
     class Search,Foundry ai;
 ```
 
-## 📋 Prerequisites
+## Prerequisites
 
 ### Option 1: Use the DevContainer (recommended)
 
@@ -47,7 +47,7 @@ flowchart LR
 - An Azure subscription with access to Microsoft Foundry, AI Search, and API Management
 - A Microsoft 365 tenant with Teams/Copilot access, admin access to validate the application in the tenant.
 
-## 🔐 Authentication
+## Authentication
 
 Before provisioning or deploying, authenticate with Azure:
 
@@ -56,7 +56,7 @@ az login --use-device-code
 azd auth login --use-device-code
 ```
 
-## 🚀 Deploy infrastructure
+## Deploy infrastructure
 
 At the **root** of the project, run the following commands to provision and deploy the application to Azure:
 
@@ -66,7 +66,7 @@ azd provision
 
 This provisions all Azure resources (App Service, Bot Service, API Management, AI Search, Microsoft Foundry, app registrations, OAuth connections) and deploys the Python application.
 
-## 📚 Populate AI Search index
+## Populate AI Search index
 
 ### Generate local environment variables
 
@@ -113,7 +113,7 @@ az ad group member add --group "<group-id>" --member-id "<user-object-id>"
 
 For simplicity, you will use the same `.env` file used by the bot. The `seed_search_index.py` script reads the group ID from `.env` and uses it to set restricted document permissions. Public documents are tagged with `group_ids=["all"]`.
 
-Inside the `.env` update the `CONTOSO_GROUP_MARKETING_ID` variable with your Entra group Object ID you created or reused.
+Inside the `.env` update the `CONTOSO_GROUP_RESTRICTED_DOCS_ID` variable with your Entra group Object ID you created or reused.
 
 Then from the **root** of the project, run the following command to seed the AI Search index with demo documents:
 
@@ -126,7 +126,7 @@ You should see something like this:
 
 ![Seed AI Search index](./docs/seed_search_command.png)
 
-## ▶️ Run the application
+## Run the application
 
 You have 2 modes to run the application: 
 - Production mode (deployed to Azure, real SSO + per-user ACLs)
@@ -146,7 +146,7 @@ the managed identity that the deployed app relies on.
 | Bot identity | User-assigned managed identity | Dedicated single-tenant app registration |
 | How the bot proves its identity to Bot Service | Managed identity (no secret) | Client secret (minted locally) |
 | Azure Bot Service resource | Production bot | Separate local bot |
-| Messaging endpoint chain | APIM → App Service | APIM → dev tunnel → local agent |
+| Messaging endpoint chain | APIM App Service | APIM dev tunnel local agent |
 | Teams manifest bot id | Production bot identity | Local bot app registration |
 | User sign-in (SSO) app | Production SSO app (federated credentials) | Dedicated local SSO app (federated credentials) |
 | Per-user Search token | OAuth connection on the production bot (production SSO app) | OAuth connection on the local bot (local SSO app) |
@@ -169,20 +169,32 @@ azd deploy
 
 The deployment must take few minutes, if it takes longer than 5 minutes cancel the deployment and run the command again. 
 
-When it's deploy you must now generate the manifest package to upload to the admin Teams portal. Run the following command to generate the manifest package:
+When it's deployed you must generate the manifest package to upload to the admin Teams portal.
 
-The teams app id is a unique GUID that you must keep to be able to update the app in the future. 
+#### 1. Create the Teams app id (one-time)
 
-Update the `--teams-app-id` parameter with your own unique GUID.
+The Teams app id is a unique GUID identifying the app in the catalog. **Keep it stable** so future version bumps update the same app instead of creating a new one. Store it once in the azd environment:
+
+```bash
+# Only set it if it isn't already stored (idempotent)
+azd env get-values | grep -q '^TEAMS_APP_ID=' || azd env set TEAMS_APP_ID "$(uuidgen)"
+```
+
+- No `uuidgen`? Use the kernel: `azd env set TEAMS_APP_ID "$(cat /proc/sys/kernel/random/uuid)"`.
+- To force a brand-new id later: `azd env set TEAMS_APP_ID "$(uuidgen)"`.
+
+> Tip: run `export AZD_SKIP_UPDATE_CHECK=true` so azd's "update available" banner doesn't pollute `azd env get-value` output in scripts.
+
+#### 2. Build the manifest package
 
 ```bash
 ./scripts/build_manifest.sh \
   --app-version "1.0.0" \
-  --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3d453 \
+  --teams-app-id "$(azd env get-value TEAMS_APP_ID)" \
   --bot-id "$(azd env get-value BOT_ID)" \
   --domain "$(azd env get-value APIM_DOMAIN)" \
-  --app-uri "$(azd env get-value AAD_APP_ID_URI)" \
-  --app-id "$(azd env get-value AAD_APP_CLIENT_ID)" \
+  --app-uri "$(azd env get-value SSO_APP_ID_URI)" \
+  --app-id "$(azd env get-value SSO_APP_ID)" \
   --short-name "YourAgent" \
   --full-name "YourAgent" \
   --zip appPackage.zip
@@ -192,7 +204,7 @@ This will create the `appPackage.zip` file ìn the `appPackage/build` folder.
 
 Now follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) section
 
-## 📦 Deploy to Teams and M365 Copilot
+## Deploy to Teams and M365 Copilot
 
 ### Development / Debug Mode
 
@@ -200,12 +212,12 @@ To run the application in development/debug mode, you need to set up a dev tunne
 
 ```mermaid
 flowchart LR
-    User["👤 Teams / M365 Copilot"] --> Bot["🤖 Local Bot Service<br/>(single-tenant + secret)"]
-    Bot -->|"🔑 Bot Framework JWT"| APIM["🚦 APIM<br/>validate-jwt"]
-    APIM -->|"➡️ forward /api/messages"| Tunnel["🔗 Dev tunnel<br/>(public URL)"]
-    Tunnel --> Local["💻 Local agent<br/>python main.py :3978"]
-    Local -->|"🔐 SSO + Search token"| Search["🔎 AI Search (per-user ACLs)"]
-    Local --> Foundry["✨ Microsoft Foundry"]
+    User["Teams / M365 Copilot"] --> Bot["Local Bot Service<br/>(single-tenant + secret)"]
+    Bot -->|"Bot Framework JWT"| APIM["APIM<br/>validate-jwt"]
+    APIM -->|"forward /api/messages"| Tunnel["Dev tunnel<br/>(public URL)"]
+    Tunnel --> Local["Local agent<br/>python main.py :3978"]
+    Local -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
+    Local --> Foundry["Microsoft Foundry"]
 
     classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
     classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92;
@@ -254,16 +266,28 @@ cd src && uv run python main.py
 
 The teams app id is a unique GUID that you must keep to be able to update the app in the future. 
 
-Update the `--teams-app-id` parameter with your own unique GUID for the development and also the name.
+#### 1. Create the dev Teams app id (one-time)
+
+The dev app is a **distinct** Teams app, so it uses its own GUID stored as `TEAMS_APP_ID_DEV`:
+
+```bash
+# Only set it if it isn't already stored (idempotent)
+azd env get-values | grep -q '^TEAMS_APP_ID_DEV=' || azd env set TEAMS_APP_ID_DEV "$(uuidgen)"
+```
+
+- No `uuidgen`? Use the kernel: `azd env set TEAMS_APP_ID_DEV "$(cat /proc/sys/kernel/random/uuid)"`.
+- To force a brand-new id later: `azd env set TEAMS_APP_ID_DEV "$(uuidgen)"`.
+
+#### 2. Build the dev manifest package
 
 ```bash
 ./scripts/build_manifest.sh \
   --app-version "1.0.0" \
-  --teams-app-id e698c10b-58cc-4372-a567-0e02b2c3a987 \
-  --bot-id "$(azd env get-value LOCAL_BOT_APP_REGISTRATION_ID)" \
+  --teams-app-id "$(azd env get-value TEAMS_APP_ID_DEV)" \
+  --bot-id "$(azd env get-value LOCAL_BOT_ID)" \
   --domain "$(azd env get-value APIM_DOMAIN)" \
-  --app-uri "$(azd env get-value LOCAL_AAD_APP_ID_URI)" \
-  --app-id "$(azd env get-value LOCAL_AAD_APP_CLIENT_ID)" \
+  --app-uri "$(azd env get-value LOCAL_SSO_APP_ID_URI)" \
+  --app-id "$(azd env get-value LOCAL_SSO_APP_ID)" \
   --short-name "YourAgentDev" \
   --full-name "YourAgentDev" \
   --zip appPackage.dev.zip
@@ -271,7 +295,7 @@ Update the `--teams-app-id` parameter with your own unique GUID for the developm
 
 Then, to be able to test you must upload the app package to Teams. Follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) section.
 
-## ⬆️ Upload the app to Teams
+## Upload the app to Teams
 
 To upload the app to Teams, follow these steps:
 
@@ -293,40 +317,39 @@ By picking only one group or user, the propagation of the app will be faster.
 sequenceDiagram
     autonumber
     %% Groups
-    box rgb(227, 242, 253) 👤 User
+    box rgb(227, 242, 253) User
         participant U as Copilot / Teams User
     end
 
-    box rgb(237, 231, 246) 📨 Microsoft 365 / Teams
+    box rgb(237, 231, 246) Microsoft 365 / Teams
         participant M as Microsoft 365 Copilot & Teams
     end
 
-    box rgb(255, 243, 224) 🤖 Azure Bot Platform
+    box rgb(255, 243, 224) Azure Bot Platform
         participant B as Azure Bot Service
         participant T as Bot Token Service
     end
 
-    box rgb(232, 245, 233) ⚙️ Custom Engine Agent - Azure Resource Group
+    box rgb(232, 245, 233) Custom Engine Agent - Azure Resource Group
         participant AP as Azure APIM (Optional)
         participant P as App Service / Agent App (M365 Agents SDK)
     end
 
-    box rgb(252, 228, 236) 🧠 Retrieval & Reasoning
+    box rgb(252, 228, 236) Retrieval & Reasoning
         participant S as Azure AI Search
         participant G as Microsoft Graph
         participant F as Microsoft Foundry (FoundryChatClient)
     end
 
     %% Inbound Message Flow
-    U->>M: 💬 User prompt<br/>(e.g., "Create a report")
+    U->>M: User prompt<br/>(e.g., "Create a report")
     M->>B: Send activity
     B->>AP: POST /bot/api/messages<br/>Authorization: Bearer BF_JWT
-    AP->>AP: 🔒 validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
+    AP->>AP: validate-jwt<br/>iss=api.botframework.com<br/>aud={bot-app-id}
     AP->>P: Forward activity to /api/messages
 
     %% Search Token Exchange Flow
-    rect rgb(255, 245, 220)
-        Note over P,T: 🔑 auth_handlers=["SEARCH"]
+    loop auth_handlers=["SEARCH"]
         P->>B: get_token("SEARCH")
         B->>M: Request SSO token (silent/consent)
         M->>U: Silent sign-in or consent prompt
@@ -335,8 +358,7 @@ sequenceDiagram
     end
 
     %% Per-User Retrieval Flow
-    rect rgb(230, 255, 230)
-        Note over P,G: 🔎 Native ACL filtering in AI Search
+    loop Native ACL filtering in AI Search
         P->>S: Query + x-ms-query-source-authorization
         S->>G: Resolve user group memberships
         G-->>S: User groups
@@ -344,19 +366,18 @@ sequenceDiagram
     end
 
     %% Agent + LLM Flow
-    rect rgb(220, 240, 255)
-        Note over P,F: ✨ Orchestration and streaming response
+    loop Orchestration and streaming response
         P->>F: FoundryChatClient.run<br/>question + filtered docs
         F-->>P: Streaming response chunks
     end
 
     %% Outbound Reply Flow (direct, not via APIM)
-    P-->>B: 📤 Reply activities (Bot Connector path)
+    P-->>B: Reply activities (Bot Connector path)
     B-->>M: Stream content
     M-->>U: Display result progressively
 ```
 
-## 📖 References
+## References
 
 - [M365 Agents SDK](https://learn.microsoft.com/microsoft-365/agents-sdk/agents-sdk-overview)
 - [Agent Framework (Python)](https://github.com/microsoft/agent-framework)
