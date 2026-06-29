@@ -210,17 +210,24 @@ the managed identity that the deployed app relies on.
 
 ```mermaid
 flowchart LR
-    User["Teams / M365 Copilot"] --> Bot["Azure Bot Service<br/>(App Registration + Managed Identity)"]
-    Bot -->|"Generate JWT and call /bot/api/messages"| APIM["APIM<br/>validate-jwt"]
-    APIM -->|"forward to /api/messages"| App["Orchestrator Agent"]
-    App -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
-    App --> Foundry["Microsoft Foundry"]
+    User["<img src='./docs/icons/microsoft-teams.svg' height='26'/> <img src='./docs/icons/microsoft-365-copilot.svg' height='26'/><br/>Teams / M365 Copilot"]
+    Bot["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/>Azure Bot Service<br/>(Managed Identity)"]
+    APIM["<img src='./docs/icons/azure-api-management.svg' height='28'/><br/>APIM<br/>validate-jwt"]
+    App["<img src='./docs/icons/azure-app-services.svg' height='28'/><br/>Orchestrator Agent"]
+    Search["<img src='./docs/icons/azure-ai-search.svg' height='28'/><br/>AI Search<br/>(per-user ACLs)"]
+    Foundry["<img src='./docs/icons/microsoft-foundry.svg' height='28'/><br/>Microsoft Foundry"]
 
-    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
-    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92;
-    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:2px,color:#E65100;
-    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
-    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#880E4F;
+    User <-->|"prompt / response"| Bot
+    Bot <-->|"POST activity (JWT) / reply"| APIM
+    APIM <-->|"proxy /api/messages"| App
+    App <-->|"search token + query / ACL docs"| Search
+    App <--> Foundry
+
+    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
+    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
+    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px,color:#E65100;
+    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
+    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:1px,color:#880E4F;
 
     class User client;
     class Bot bot;
@@ -280,19 +287,27 @@ To run the application in development/debug mode, you need to set up a dev tunne
 
 ```mermaid
 flowchart LR
-    User["Teams / M365 Copilot"] --> Bot["Local Bot Service<br/>(single-tenant + secret)"]
-    Bot -->|"Bot Framework JWT"| APIM["APIM<br/>validate-jwt"]
-    APIM -->|"forward /api/messages"| Tunnel["Dev tunnel<br/>(public URL)"]
-    Tunnel --> Local["Local agent<br/>python main.py :3978"]
-    Local -->|"SSO + Search token"| Search["AI Search (per-user ACLs)"]
-    Local --> Foundry["Microsoft Foundry"]
+    User["<img src='./docs/icons/microsoft-teams.svg' height='26'/> <img src='./docs/icons/microsoft-365-copilot.svg' height='26'/><br/>Teams / M365 Copilot"]
+    Bot["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/>Local Bot Service<br/>(single-tenant + secret)"]
+    APIM["<img src='./docs/icons/azure-api-management.svg' height='28'/><br/>APIM<br/>validate-jwt"]
+    Tunnel["<img src='./docs/icons/azure-dev-tunnels.svg' height='28'/><br/>Dev tunnel<br/>(public URL)"]
+    Local["<img src='./docs/icons/azure-app-services.svg' height='28'/><br/>Local agent<br/>python main.py :3978"]
+    Search["<img src='./docs/icons/azure-ai-search.svg' height='28'/><br/>AI Search<br/>(per-user ACLs)"]
+    Foundry["<img src='./docs/icons/microsoft-foundry.svg' height='28'/><br/>Microsoft Foundry"]
 
-    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:2px,color:#0D47A1;
-    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:2px,color:#311B92;
-    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:2px,color:#E65100;
-    classDef tunnel fill:#FFFDE7,stroke:#F9A825,stroke-width:2px,color:#F57F17;
-    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:2px,color:#1B5E20;
-    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:2px,color:#880E4F;
+    User <-->|"prompt / response"| Bot
+    Bot <-->|"POST activity (JWT) / reply"| APIM
+    APIM <-->|"proxy /api/messages"| Tunnel
+    Tunnel <--> Local
+    Local <-->|"search token + query / ACL docs"| Search
+    Local <--> Foundry
+
+    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
+    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
+    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px,color:#E65100;
+    classDef tunnel fill:#FFFDE7,stroke:#F9A825,stroke-width:1px,color:#F57F17;
+    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
+    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:1px,color:#880E4F;
 
     class User client;
     class Bot bot;
@@ -395,3 +410,5 @@ Open the existing app from **Teams apps > Manage apps**, then use **Upload file*
 - [Query-Time ACL Enforcement](https://learn.microsoft.com/azure/search/search-query-access-control-rbac-enforcement)
 - [Bot Connector Authentication](https://learn.microsoft.com/azure/bot-service/rest-api/bot-framework-rest-connector-authentication)
 - [APIM validate-jwt Policy](https://learn.microsoft.com/azure/api-management/validate-jwt-policy)
+- [Azure Architecture Icons](https://learn.microsoft.com/azure/architecture/icons/)
+- [Microsoft 365 Architecture Icons](https://learn.microsoft.com/previous-versions/microsoft-365/solutions/architecture-icons-templates)
