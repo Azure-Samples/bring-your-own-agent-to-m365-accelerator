@@ -12,7 +12,9 @@
     "ghcr.io/abeckDev/devtunnel-devcontainer-feature/devtunnel:1": {},
     "ghcr.io/azure/azure-dev/azd:latest": {},
     "ghcr.io/devcontainers-extra/features/ruff:1": {},
-    "ghcr.io/abeckDev/devtunnel-devcontainer-feature/devtunnel:1": {}
+    "ghcr.io/devcontainers-extra/features/apt-packages:1": {
+      "packages": "uuid-runtime"
+    }
   },
   "forwardPorts": [18888, 3978, 56150],
   "customizations": {
