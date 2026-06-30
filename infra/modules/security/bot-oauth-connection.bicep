@@ -8,14 +8,14 @@ param botServiceName string
 @description('The name for the OAuth connection setting')
 param connectionName string = 'SsoConnection'
 
-@description('The Azure AD Application (client) ID from the app registration')
-param aadAppId string
+@description('Portal field "Client id": the Application (client) ID of the SSO app registration (identity provider).')
+param clientId string
 
-@description('The Azure AD Application ID URI (e.g., api://botid-{guid})')
-param aadAppIdUri string
+@description('Portal field "Token Exchange URL": the SSO Application ID URI (api://botid-{botAppId}). Used for Teams SSO token exchange.')
+param tokenExchangeUrl string
 
-@description('The federated credential name (unique identifier from the federated credential)')
-param federatedCredentialName string
+@description('Portal field "Unique Identifier": the federated identity credential name registered on the SSO app.')
+param uniqueIdentifier string
 
 @description('OAuth scopes to request - should be the app ID URI with access_as_user scope')
 param scopes string
@@ -35,20 +35,20 @@ resource botOAuthConnection 'Microsoft.BotService/botServices/connections@2022-0
   properties: {
     serviceProviderId: 'c00b44ab-5e16-c44c-af26-2fd5bc55eb18' // AAD v2 with Federated Credentials
     serviceProviderDisplayName: 'AAD v2 with Federated Credentials'
-    clientId: aadAppId
+    clientId: clientId
     scopes: scopes
     parameters: [
       {
         key: 'ClientId'
-        value: aadAppId
+        value: clientId
       }
       {
         key: 'UniqueIdentifier'
-        value: federatedCredentialName
+        value: uniqueIdentifier
       }
       {
         key: 'TokenExchangeUrl'
-        value: aadAppIdUri
+        value: tokenExchangeUrl
       }
       {
         key: 'TenantId'

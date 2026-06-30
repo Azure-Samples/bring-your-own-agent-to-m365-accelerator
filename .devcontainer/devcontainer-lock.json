@@ -1,0 +1,34 @@
+{
+  "features": {
+    "azure-cli": {
+      "version": "1.3.0",
+      "resolved": "ghcr.io/devcontainers/features/azure-cli@sha256:d98f1066c077be0fa9d115b718f458bd803e415181b4a96f82a6f5d9f77241ac",
+      "integrity": "sha256:d98f1066c077be0fa9d115b718f458bd803e415181b4a96f82a6f5d9f77241ac"
+    },
+    "ghcr.io/abeckDev/devtunnel-devcontainer-feature/devtunnel:1": {
+      "version": "1.0.0",
+      "resolved": "ghcr.io/abeckdev/devtunnel-devcontainer-feature/devtunnel@sha256:389dcb6e614debf88f582924f6334cfc1e405b4a112d18837339a477862ee1ca",
+      "integrity": "sha256:389dcb6e614debf88f582924f6334cfc1e405b4a112d18837339a477862ee1ca"
+    },
+    "ghcr.io/azure/azure-dev/azd:latest": {
+      "version": "0.2.0",
+      "resolved": "ghcr.io/azure/azure-dev/azd@sha256:01bbec064fcb34f7c8730b3e3c2cc210699e213419664524982268b2910c4f73",
+      "integrity": "sha256:01bbec064fcb34f7c8730b3e3c2cc210699e213419664524982268b2910c4f73"
+    },
+    "ghcr.io/devcontainers-extra/features/ruff:1": {
+      "version": "1.1.1",
+      "resolved": "ghcr.io/devcontainers-extra/features/ruff@sha256:017adb4bd389a4eabcebfb5a200cd6366046e603a38cc3461747e6d4c7d57142",
+      "integrity": "sha256:017adb4bd389a4eabcebfb5a200cd6366046e603a38cc3461747e6d4c7d57142"
+    },
+    "ghcr.io/devcontainers/features/node:2.1.0": {
+      "version": "2.1.0",
+      "resolved": "ghcr.io/devcontainers/features/node@sha256:586c9a6f7dd40bd3ba2cd41e7f2f88dcc31fbe5d1442afcbf07ffbc66b686857",
+      "integrity": "sha256:586c9a6f7dd40bd3ba2cd41e7f2f88dcc31fbe5d1442afcbf07ffbc66b686857"
+    },
+    "ghcr.io/va-h/devcontainers-features/uv:1": {
+      "version": "1.1.4",
+      "resolved": "ghcr.io/va-h/devcontainers-features/uv@sha256:a15737142539d150ef4d358e2d6a7424a0a2f3dc43b29a3aa1b50162a8b11bc1",
+      "integrity": "sha256:a15737142539d150ef4d358e2d6a7424a0a2f3dc43b29a3aa1b50162a8b11bc1"
+    }
+  }
+}

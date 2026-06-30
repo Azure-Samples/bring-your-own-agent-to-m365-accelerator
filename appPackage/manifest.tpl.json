@@ -1,10 +1,10 @@
 {
-    "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.23/MicrosoftTeams.schema.json",
-    "manifestVersion": "1.23",
-    "version": "1.0.0",
-    "id": "e34ac10b-58cc-4372-a567-0e02b2c3d453", 
+    "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.24/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.24",
+    "version": "${{APP_VERSION}}",
+    "id": "${{TEAMS_APP_ID}}",
     "developer": {
-        "name": "Alfred",
+        "name": "${{APP_NAME}}",
         "websiteUrl": "https://www.example.com",
         "privacyUrl": "https://www.example.com/privacy",
         "termsOfUseUrl": "https://www.example.com/termofuse"
@@ -14,12 +14,12 @@
         "outline": "outline.png"
     },
     "name": {
-        "short": "Alfred",
-        "full": "Alfred"
+        "short": "${{APP_SHORT_NAME}}",
+        "full": "${{APP_FULL_NAME}}"
     },
     "description": {
-        "short": "Help you to get Alfred to do tasks related to your company.",
-        "full": "Help you to get Alfred to do task related to your company data."
+        "short": "Help you to get ${{APP_SHORT_NAME}} to do tasks related to your company.",
+        "full": "Help you to get ${{APP_FULL_NAME}} to do tasks related to your company data."
     },
     "accentColor": "#FFFFFF",
     "copilotAgents": {
@@ -67,5 +67,12 @@
         "identity",
         "messageTeamMembers"
     ],
-    "validDomains": []
+    "validDomains": [
+        "${{APP_SERVICE_DOMAIN}}",
+        "token.botframework.com"
+    ],
+    "webApplicationInfo": {
+        "id": "${{SSO_APP_ID}}",
+        "resource": "${{SSO_APP_ID_URI}}"
+    }
 }

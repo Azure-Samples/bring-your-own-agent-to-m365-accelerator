@@ -15,9 +15,12 @@ param name string
 ])
 param location string
 
+@description('Optional region override for Azure AI Search. Use when the deployment region has no Standard-tier AI Search capacity (ResourcesForSkuUnavailable). Empty = same as location.')
+param searchLocation string = ''
+
 @description('The environment deployed')
-@allowed(['sbx', 'dev', 'stg', 'prd'])
-param environment string = 'sbx'
+@allowed(['dev', 'stg', 'prd'])
+param environment string = 'dev'
 
 @description('Name of the application')
 param application string = 'cpl'
@@ -39,27 +42,13 @@ param tags object = {
   'eastus2'
   'swedencentral'
 ])
-param msFoundryLocation string = 'eastus2'
-
-@description('The small model to be used for chat completions')
-param chatSmallModel object = {
-  name: 'gpt-4.1-mini'
-  capacity: 1000
-  version: '2025-04-14'
-}
+param msFoundryLocation string = 'swedencentral'
 
 @description('The orchestrator model to be used for chat completions')
 param chatOrchestratorModel object = {
-  name: 'gpt-5.2'
-  capacity: 500
-  version: '2025-12-11'
-}
-
-@description('Embeddings model to be use')
-param embeddingModelName object = {
-  name: 'text-embedding-3-small'
-  capacity: 1000
-  version: '1'
+  name: 'gpt-5.4'
+  capacity: 100
+  version: '2026-03-05'
 }
 
 @description('Tenant ID for the Entra ID application')
@@ -67,6 +56,27 @@ param tenantId string = tenant().tenantId
 
 @description('Base64 URL encoded Tenant ID for the Entra ID application')
 param tenantIdBase64Encoded string
+
+@description('Publisher email used for API Management metadata.')
+param apimPublisherEmail string = 'apimgmt-noreply@mail.windowsazure.com'
+
+@description('SKU used for the API Management instance.')
+@allowed([
+  'Consumption'
+  'Developer'
+  'BasicV2'
+])
+param apimSku string = 'Consumption'
+
+// ── Local bot (local development behind APIM) ──
+// A separate single-tenant bot ('bot-local-<suffix>') exposed through the dev tunnel as
+// the APIM backend, deployed alongside the prod bot in all cases. The prod bot uses a
+// managed identity; the local bot uses its own app registration + client secret (a laptop
+// cannot use a managed identity to call the Bot Connector). The app registration and its
+// secret (stored in Key Vault) are created entirely in Bicep — no provisioning scripts.
+@description('Public dev tunnel base URL (https://...devtunnels.ms) used as the local APIM backend. Set by scripts/devtunnel.sh; defaults to a placeholder until the tunnel is created.')
+param localTunnelEndpoint string = 'https://localhost'
+
 
 var resourceToken = toLower(uniqueString(subscription().id, name, environment, application))
 var resourceSuffix = [
@@ -155,15 +165,16 @@ module msFoundryProject './modules/foundry/ms-foundry-project.bicep' = {
   }
 }
 
-module chatSmallDeploymentModel './modules/foundry/ms-foundry-model.bicep' = {
-  name: 'chatSmallDeploymentModel'
+module msFoundryAppInsightsConnection './modules/foundry/ms-foundry-appinsights-connection.bicep' = {
+  name: 'msFoundryAppInsightsConnection'
   scope: resourceGroup
   params: {
     msFoundryName: msFoundry.outputs.name
-    modelName: chatSmallModel.name
-    modelCapacity: chatSmallModel.capacity
-    modelVersion: chatSmallModel.version
+    aiProjectName: 'prj-${resourceSuffixKebabcase}'
+    appInsightsName: applicationInsights.outputs.name
+    location: location
   }
+  dependsOn: [msFoundryProject]
 }
 
 module chatOrchestratorDeploymentModel './modules/foundry/ms-foundry-model.bicep' = {
@@ -175,30 +186,15 @@ module chatOrchestratorDeploymentModel './modules/foundry/ms-foundry-model.bicep
     modelCapacity: chatOrchestratorModel.capacity
     modelVersion: chatOrchestratorModel.version
   }
-  dependsOn: [chatSmallDeploymentModel]
-}
-
-module embeddingDeploymentModel './modules/foundry/ms-foundry-model.bicep' = {
-  name: 'embeddingDeploymentModel'
-  scope: resourceGroup
-  params: {
-    msFoundryName: msFoundry.outputs.name
-    modelName: embeddingModelName.name
-    modelCapacity: embeddingModelName.capacity
-    modelVersion: embeddingModelName.version
-  }
-  dependsOn: [chatOrchestratorDeploymentModel]
 }
 
 module aiSearch './modules/data/ai_search.bicep' = {
   name: 'aiSearch'
   scope: resourceGroup
   params: {
-    name: 'srch-${resourceSuffixKebabcase}'
-    location: location
+    name: 'search-${resourceSuffixKebabcase}'
+    location: empty(searchLocation) ? location : searchLocation
     tags: tags
-    skuName: 'standard'
-    semanticSearch: 'standard'
   }
 }
 
@@ -228,7 +224,7 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
   params: {
     name: 'app-teams-${resourceSuffixKebabcase}'
     location: location
-    userAssignedIdentityId: botUami.outputs.id
+    userAssignedIdentityId: botManagedIdentity.outputs.id
     tags: union(tags, { 'azd-service-name': 'teams-agent' })
     applicationInsightsName: applicationInsights.outputs.name
     appServicePlanId: appServicePlan.outputs.id
@@ -238,20 +234,32 @@ module teamsAgentAppService './modules/host/appservice.bicep' = {
     scmDoBuildDuringDeployment: true
     healthCheckPath: '/health'
     appSettings: {
-      CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID: botUami.outputs.clientId
+      PORT: '3978'
+      WEBSITES_PORT: '3978'
+      // M365 Agents SDK settings (Python uses CONNECTIONS__ prefix from env)
+      CONNECTIONS__SERVICE_CONNECTION__SETTINGS__CLIENTID: botManagedIdentity.outputs.clientId
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__AUTHTYPE: 'UserManagedIdentity'
       CONNECTIONS__SERVICE_CONNECTION__SETTINGS__TENANTID: tenant().tenantId
+      // SSO auth handler
+      AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SSO__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'default_user_access_token'
+      AGENTAPPLICATION__USERAUTHORIZATION__HANDLERS__SEARCH__SETTINGS__AZUREBOTOAUTHCONNECTIONNAME: 'search_access_token'
+      // Foundry agent configuration (direct mode — agent-framework in-process)
       MS_FOUNDRY_PROJECT_ENDPOINT: msFoundryProject.outputs.endpoint
-      MS_FOUNDRY_SMALL_MODEL_DEPLOYMENT_NAME: chatSmallModel.name
       MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME: chatOrchestratorModel.name
-      WEBSITES_PORT: '3978'
-      PORT: '3978'
+      // Connections map
+      CONNECTIONSMAP__0__CONNECTION: 'SERVICE_CONNECTION'
+      CONNECTIONSMAP__0__SERVICEURL: '*'
+      // BOT Client ID for managed identity
+      BOT_CLIENT_ID: botManagedIdentity.outputs.clientId
+      // AI Search (document-level access control)
+      AZURE_SEARCH_ENDPOINT: 'https://${aiSearch.outputs.name}.search.windows.net'
+      AZURE_SEARCH_INDEX: 'secure-docs'
     }
   }
 }
 
-module botUami './modules/security/uami.bicep' = {
-  name: 'botUami'
+module botManagedIdentity './modules/security/user-assigned-identity.bicep' = {
+  name: 'botManagedIdentity'
   scope: resourceGroup
   params: {
     name: 'bot-identity-${resourceSuffixKebabcase}'
@@ -266,10 +274,26 @@ module botService './modules/bot/bot-service.bicep' = {
   params: {
     botName: 'bot-${resourceSuffixKebabcase}'
     botDisplayName: 'Orchestrator Agent'
-    botIdentityName: botUami.outputs.name
-    hostName: teamsAgentAppService.outputs.uri
+    botIdentityName: botManagedIdentity.outputs.name
+    messagingEndpoint: botApiProd.outputs.messagingEndpoint
     logAnalyticsId: logAnalytics.outputs.id
     appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
+    tags: tags
+  }
+}
+
+// Local bot (single-tenant). Messaging endpoint -> local APIM API -> dev tunnel.
+module botServiceLocal './modules/bot/bot-service-local.bicep' = {
+  name: 'botServiceLocal'
+  scope: resourceGroup
+  params: {
+    botName: 'bot-local-${resourceSuffixKebabcase}'
+    botDisplayName: 'Orchestrator Agent (local)'
+    botAppId: localBotAppRegistration.outputs.appId
+    messagingEndpoint: botApiLocal.outputs.messagingEndpoint
+    logAnalyticsId: logAnalytics.outputs.id
+    appInsightsInstrumentationKey: applicationInsights.outputs.instrumentationKey
+    tags: tags
   }
 }
 
@@ -283,7 +307,7 @@ module roles './modules/security/roles.bicep' = {
     // Move role assignment arrays to main and pass into module
     metricsPublisherAssignments: [
       {
-        principalId: botUami.outputs.principalId
+        principalId: botManagedIdentity.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
       }
@@ -295,7 +319,7 @@ module roles './modules/security/roles.bicep' = {
     ]
     openAIContributorAssignments: [
       {
-        principalId: botUami.outputs.principalId
+        principalId: botManagedIdentity.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
       }
@@ -307,7 +331,7 @@ module roles './modules/security/roles.bicep' = {
     ]
     aiUserAssignments: [
       {
-        principalId: botUami.outputs.principalId
+        principalId: botManagedIdentity.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
       }
@@ -319,7 +343,7 @@ module roles './modules/security/roles.bicep' = {
     ]
     aiProjectManagerAssignments: [
       {
-        principalId: botUami.outputs.principalId
+        principalId: botManagedIdentity.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
       }
@@ -331,7 +355,7 @@ module roles './modules/security/roles.bicep' = {
     ]
     searchIndexDataContributorAssignments: [
       {
-        principalId: botUami.outputs.principalId
+        principalId: botManagedIdentity.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
       }
@@ -348,7 +372,7 @@ module roles './modules/security/roles.bicep' = {
     ]
     searchServiceContributorAssignments: [
       {
-        principalId: botUami.outputs.principalId
+        principalId: botManagedIdentity.outputs.principalId
         principalType: 'ServicePrincipal'
         principalLabel: 'teams-agent'
       }
@@ -366,19 +390,90 @@ module roles './modules/security/roles.bicep' = {
   }
 }
 
-// Create App Registration with all required parameters
-module appRegistration './modules/security/app-registration.bicep' = {
-  name: 'deploy-app-registration'
+// ── Local bot identity (channel app registration) ──
+// Single-tenant app registration that is the local bot's channel identity. The deployer
+// is set as an owner so the developer can mint a client secret locally (see
+// scripts/gen_local_env.sh). Bicep cannot generate an Entra client secret itself, and
+// Microsoft.Resources/deploymentScripts is disallowed on this subscription, so the secret
+// is created with `az ad app credential reset` at local-env generation time.
+module localBotAppRegistration './modules/security/local-bot-app-registration.bicep' = {
+  name: 'localBotAppRegistration'
   scope: resourceGroup
   params: {
-    aadAppName: 'app-reg-${resourceSuffixKebabcase}'
-    botId: botUami.outputs.clientId
+    appName: 'app-reg-bot-local-${resourceSuffixKebabcase}'
+    ownerPrincipalId: deployer().objectId
+  }
+}
+
+// Production SSO (user authorization) app — fronts the prod bot (managed identity).
+module ssoAppRegistration './modules/security/sso-app-registration.bicep' = {
+  name: 'deploy-sso-app-registration'
+  scope: resourceGroup
+  params: {
+    ssoAppName: 'app-reg-sso-${resourceSuffixKebabcase}'
+    botAppId: botManagedIdentity.outputs.clientId
     tenantId: tenantId
     tenantIdBase64Encoded: tenantIdBase64Encoded
   }
-  dependsOn: [
-    botService
-  ]
+  // Serialize Graph app-registration creation to avoid the eventual-consistency race
+  // where servicePrincipal/federatedCredential read appId before the application
+  // has propagated.
+  dependsOn: [localBotAppRegistration]
+}
+
+// Dedicated SSO app for the LOCAL / dev environment — NOT shared with prod. Its Application
+// ID URI is api://botid-<local bot app id> so it lines up with the local bot's channel
+// identity and the dev Teams manifest. One SSO app per environment (no mix).
+module ssoAppRegistrationLocal './modules/security/sso-app-registration.bicep' = {
+  name: 'deploy-sso-app-registration-local'
+  scope: resourceGroup
+  params: {
+    ssoAppName: 'app-reg-sso-local-${resourceSuffixKebabcase}'
+    botAppId: localBotAppRegistration.outputs.appId
+    tenantId: tenantId
+    tenantIdBase64Encoded: tenantIdBase64Encoded
+  }
+  // Create after the prod SSO app so the three Graph apps register sequentially.
+  dependsOn: [ssoAppRegistration]
+}
+
+module apiManagement './modules/apim/apim.bicep' = {
+  name: 'apiManagement'
+  scope: resourceGroup
+  params: {
+    name: 'apim-${resourceSuffixKebabcase}'
+    location: location
+    tags: tags
+    publisherEmail: apimPublisherEmail
+    publisherName: 'm365-copilot-pro-code-approach'
+    sku: apimSku
+  }
+}
+
+// Prod bot API: validate-jwt (audience = prod bot MSI) -> App Service backend.
+module botApiProd './modules/apim/apim-bot-api.bicep' = {
+  name: 'botApiProd'
+  scope: resourceGroup
+  params: {
+    apimName: apiManagement.outputs.name
+    apiName: 'bot-proxy'
+    apiPath: 'bot'
+    botAppId: botManagedIdentity.outputs.clientId
+    botBackendUrl: teamsAgentAppService.outputs.uri
+  }
+}
+
+// Local bot API: validate-jwt (audience = local bot) -> dev tunnel backend.
+module botApiLocal './modules/apim/apim-bot-api.bicep' = {
+  name: 'botApiLocal'
+  scope: resourceGroup
+  params: {
+    apimName: apiManagement.outputs.name
+    apiName: 'bot-proxy-local'
+    apiPath: 'bot-local'
+    botAppId: localBotAppRegistration.outputs.appId
+    botBackendUrl: localTunnelEndpoint
+  }
 }
 
 // Configure OAuth Connection with Azure AD v2 and Federated Credentials
@@ -388,10 +483,10 @@ module botOAuthConnection './modules/security/bot-oauth-connection.bicep' = {
   params: {
     botServiceName: botService.outputs.botName
     connectionName: 'default_user_access_token'
-    aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.aadAppIdUri
-    federatedCredentialName: appRegistration.outputs.fciName
-    scopes: '${appRegistration.outputs.aadAppIdUri}/access_as_user'
+    clientId: ssoAppRegistration.outputs.ssoAppId
+    tokenExchangeUrl: ssoAppRegistration.outputs.ssoAppIdUri
+    uniqueIdentifier: ssoAppRegistration.outputs.federatedCredentialName
+    scopes: '${ssoAppRegistration.outputs.ssoAppIdUri}/access_as_user'
     tenantId: tenantId
     location: 'global'
   }
@@ -403,9 +498,9 @@ module botOAuthConnectionmsFoundry './modules/security/bot-oauth-connection.bice
   params: {
     botServiceName: botService.outputs.botName
     connectionName: 'ai_foundry_access_token'
-    aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.aadAppIdUri
-    federatedCredentialName: appRegistration.outputs.fciName
+    clientId: ssoAppRegistration.outputs.ssoAppId
+    tokenExchangeUrl: ssoAppRegistration.outputs.ssoAppIdUri
+    uniqueIdentifier: ssoAppRegistration.outputs.federatedCredentialName
     scopes: 'https://ai.azure.com/user_impersonation'
     tenantId: tenantId
     location: 'global'
@@ -418,10 +513,58 @@ module botOAuthCopilotStudio './modules/security/bot-oauth-connection.bicep' = {
   params: {
     botServiceName: botService.outputs.botName
     connectionName: 'copilot_studio_access_token'
-    aadAppId: appRegistration.outputs.aadAppId
-    aadAppIdUri: appRegistration.outputs.aadAppIdUri
-    federatedCredentialName: appRegistration.outputs.fciName
+    clientId: ssoAppRegistration.outputs.ssoAppId
+    tokenExchangeUrl: ssoAppRegistration.outputs.ssoAppIdUri
+    uniqueIdentifier: ssoAppRegistration.outputs.federatedCredentialName
     scopes: 'https://api.powerplatform.com/CopilotStudio.Copilots.Invoke'
+    tenantId: tenantId
+    location: 'global'
+  }
+}
+
+module botOAuthSearch './modules/security/bot-oauth-connection.bicep' = {
+  name: 'deploy-bot-oauth-connection-search'
+  scope: resourceGroup
+  params: {
+    botServiceName: botService.outputs.botName
+    connectionName: 'search_access_token'
+    clientId: ssoAppRegistration.outputs.ssoAppId
+    tokenExchangeUrl: ssoAppRegistration.outputs.ssoAppIdUri
+    uniqueIdentifier: ssoAppRegistration.outputs.federatedCredentialName
+    scopes: 'https://search.azure.com/user_impersonation'
+    tenantId: tenantId
+    location: 'global'
+  }
+}
+
+// Local bot OAuth connections (SSO + Search) bound to the DEDICATED local SSO app and its
+// own federated credential; the token-exchange URI targets the local bot
+// (api://botid-<localBotAppId>). Each environment is self-contained (no sharing with prod).
+module botOAuthConnectionLocal './modules/security/bot-oauth-connection.bicep' = {
+  name: 'deploy-bot-oauth-connection-user-local'
+  scope: resourceGroup
+  params: {
+    botServiceName: botServiceLocal.outputs.botName
+    connectionName: 'default_user_access_token'
+    clientId: ssoAppRegistrationLocal.outputs.ssoAppId
+    tokenExchangeUrl: ssoAppRegistrationLocal.outputs.ssoAppIdUri
+    uniqueIdentifier: ssoAppRegistrationLocal.outputs.federatedCredentialName
+    scopes: '${ssoAppRegistrationLocal.outputs.ssoAppIdUri}/access_as_user'
+    tenantId: tenantId
+    location: 'global'
+  }
+}
+
+module botOAuthSearchLocal './modules/security/bot-oauth-connection.bicep' = {
+  name: 'deploy-bot-oauth-connection-search-local'
+  scope: resourceGroup
+  params: {
+    botServiceName: botServiceLocal.outputs.botName
+    connectionName: 'search_access_token'
+    clientId: ssoAppRegistrationLocal.outputs.ssoAppId
+    tokenExchangeUrl: ssoAppRegistrationLocal.outputs.ssoAppIdUri
+    uniqueIdentifier: ssoAppRegistrationLocal.outputs.federatedCredentialName
+    scopes: 'https://search.azure.com/user_impersonation'
     tenantId: tenantId
     location: 'global'
   }
@@ -431,12 +574,39 @@ output AZURE_RESOURCE_GROUP string = resourceGroup.name
 output AZURE_LOCATION string = location
 output AZURE_TENANT_ID string = tenantId
 
-// Bot Service outputs
-output BOT_ID string = botUami.outputs.clientId
+// Bot Service outputs (prod)
+output BOT_ID string = botManagedIdentity.outputs.clientId
 output BOT_SERVICE_NAME string = botService.outputs.botName
-output BOT_ENDPOINT string = '${teamsAgentAppService.outputs.uri}/api/messages'
+output BOT_ENDPOINT string = botApiProd.outputs.messagingEndpoint
 
-// App Registration outputs
-output AAD_APP_CLIENT_ID string = appRegistration.outputs.aadAppId
-output AAD_APP_ID_URI string = appRegistration.outputs.aadAppIdUri
-output FEDERATED_CREDENTIAL_NAME string = appRegistration.outputs.fciName
+// Local bot outputs (always deployed). The local bot's identity IS its single-tenant app
+// registration (LOCAL_BOT_ID = Bot Service msaAppId = Teams manifest bot id). User sign-in
+// (SSO) uses the DEDICATED local SSO app (LOCAL_SSO_APP_* outputs below).
+output LOCAL_BOT_ID string = localBotAppRegistration.outputs.appId
+output LOCAL_BOT_SERVICE_NAME string = botServiceLocal.outputs.botName
+output LOCAL_BOT_ENDPOINT string = botApiLocal.outputs.messagingEndpoint
+
+
+// SSO (user authorization) app outputs. SSO_APP_ID = webApplicationInfo.id;
+// SSO_APP_ID_URI = webApplicationInfo.resource = api://botid-<BOT_ID>.
+output SSO_APP_ID string = ssoAppRegistration.outputs.ssoAppId
+output SSO_APP_ID_URI string = ssoAppRegistration.outputs.ssoAppIdUri
+output FEDERATED_CREDENTIAL_NAME string = ssoAppRegistration.outputs.federatedCredentialName
+
+// Local SSO app outputs (dedicated to the development / debug environment).
+// LOCAL_SSO_APP_ID = dev manifest webApplicationInfo.id;
+// LOCAL_SSO_APP_ID_URI = webApplicationInfo.resource = api://botid-<LOCAL_BOT_ID>.
+output LOCAL_SSO_APP_ID string = ssoAppRegistrationLocal.outputs.ssoAppId
+output LOCAL_SSO_APP_ID_URI string = ssoAppRegistrationLocal.outputs.ssoAppIdUri
+output LOCAL_FEDERATED_CREDENTIAL_NAME string = ssoAppRegistrationLocal.outputs.federatedCredentialName
+
+// AI Search outputs
+output AZURE_SEARCH_ENDPOINT string = 'https://${aiSearch.outputs.name}.search.windows.net'
+output AZURE_SEARCH_INDEX string = 'secure-docs'
+
+// Foundry outputs
+output MS_FOUNDRY_PROJECT_ENDPOINT string = msFoundryProject.outputs.endpoint
+output MS_FOUNDRY_ORCHESTRATOR_MODEL_DEPLOYMENT_NAME string = chatOrchestratorModel.name
+
+// APIM outputs
+output APIM_DOMAIN string = apiManagement.outputs.apimDomain

@@ -6,12 +6,11 @@
       "version": "latest"
     },
     "ghcr.io/va-h/devcontainers-features/uv:1": {},
-    "ghcr.io/devcontainers/features/node:1": {
+    "ghcr.io/devcontainers/features/node:2.1.0": {
 
     },
     "ghcr.io/abeckDev/devtunnel-devcontainer-feature/devtunnel:1": {},
     "ghcr.io/azure/azure-dev/azd:latest": {},
-    "ghcr.io/devcontainers-extra/features/poetry:2": {},
     "ghcr.io/devcontainers-extra/features/ruff:1": {}
   },
   "forwardPorts": [18888, 3978, 56150],
@@ -42,5 +41,5 @@
     }
   },
   "containerUser": "vscode",
-  "postCreateCommand": "npm install -g @microsoft/teams-app-test-tool"
+  "postCreateCommand": "cd src && uv sync"
 }

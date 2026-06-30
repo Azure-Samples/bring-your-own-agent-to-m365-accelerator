@@ -1,0 +1,27 @@
+<policies>
+  <inbound>
+    <base />
+    <!-- Validate Bot Framework JWT sent by Azure Bot Service -->
+    <validate-jwt header-name="Authorization" failed-validation-httpcode="401" failed-validation-error-message="Unauthorized: invalid Bot Framework token." require-expiration-time="true" require-signed-tokens="true">
+      <openid-config url="https://login.botframework.com/v1/.well-known/openidconfiguration" />
+      <audiences>
+        <audience>{{bot-app-id}}</audience>
+      </audiences>
+      <issuers>
+        <issuer>https://api.botframework.com</issuer>
+      </issuers>
+    </validate-jwt>
+    <set-header name="X-Forwarded-By-APIM" exists-action="override">
+      <value>true</value>
+    </set-header>
+  </inbound>
+  <backend>
+    <forward-request buffer-response="false" />
+  </backend>
+  <outbound>
+    <base />
+  </outbound>
+  <on-error>
+    <base />
+  </on-error>
+</policies>

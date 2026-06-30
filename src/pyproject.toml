@@ -1,0 +1,41 @@
+[project]
+name = "m365-agent-app"
+version = "0.2.0"
+description = "M365 Agent Application — Bot + Multi-Agent behind APIM (v2)"
+readme = "README.md"
+requires-python = ">=3.13, <4.0.0"
+dependencies = [
+    "microsoft-agents-hosting-aiohttp==1.1.0",
+    "microsoft-agents-hosting-core==1.1.0",
+    "microsoft-agents-activity==1.1.0",
+    "microsoft-agents-authentication-msal==1.1.0",
+    "azure-identity==1.25.3",
+    "aiohttp==3.14.1",
+    "python-dotenv==1.2.2",
+    "agent-framework-core==1.9.0",
+    "agent-framework-foundry==1.8.2",
+    "agent-framework-azure-ai-search==1.0.0b260521",
+    "agent-framework-devui==1.0.0b260528",
+    "azure-monitor-opentelemetry-exporter==1.0.0b53",
+    "azure-ai-projects==2.2.0",
+    "azure-search-documents==11.7.0b2",
+    "pydantic>=2.12.4",
+    "azure-monitor-opentelemetry>=1.8.8",
+]
+
+[tool.uv]
+prerelease = "allow"
+
+[tool.setuptools]
+packages = [
+    "agents",
+    "bootstrap",
+    "models",
+    "tools",
+    "utils",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+ 

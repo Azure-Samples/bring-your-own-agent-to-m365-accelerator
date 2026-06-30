@@ -108,22 +108,13 @@ module configAppSettings 'appservice-appsettings.bicep' = {
     appSettings: union(
       appSettings,
       {
-        name: 'APPLICATIONINSIGHTS_AUTHENTICATION_STRING'
-        value: 'Authorization=AAD'
-      },
-      {
-        name: 'APPLICATIONINSIGHTS_CONNECTION_STRING'
-        value: 'InstrumentationKey=${applicationInsights.properties.InstrumentationKey};IngestionEndpoint=https://${applicationInsights.location}.in.applicationinsights.azure.com/;LiveEndpoint=https://${applicationInsights.location}.livediagnostics.monitor.azure.com/'
-      },
-      {
         SCM_DO_BUILD_DURING_DEPLOYMENT: string(scmDoBuildDuringDeployment)
         ENABLE_ORYX_BUILD: string(enableOryxBuild)
       },
       runtimeName == 'python' && appCommandLine == '' ? { PYTHON_ENABLE_GUNICORN_MULTIWORKERS: 'true' } : {},
       !empty(applicationInsightsName)
         ? {
-            APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.?properties.?ConnectionString
-            APPINSIGHTS_INSTRUMENTATIONKEY: applicationInsights.?properties.?InstrumentationKey
+            APPLICATIONINSIGHTS_CONNECTION_STRING: applicationInsights.properties.ConnectionString
           }
         : {},
       !empty(keyVaultName) ? { AZURE_KEY_VAULT_ENDPOINT: keyVault.?properties.?vaultUri } : {}

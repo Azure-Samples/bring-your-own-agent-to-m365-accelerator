@@ -15,7 +15,7 @@ resource msFoundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-04
   name: aiProjectName
 }
 
-resource aisearch_connection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01' = {
+resource aiSearchConnection 'Microsoft.CognitiveServices/accounts/projects/connections@2025-06-01' = {
   parent: msFoundryProject
   name: 'conn-${aiSearchName}'
   properties: {
