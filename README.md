@@ -208,33 +208,10 @@ the managed identity that the deployed app relies on.
 
 ### Production Mode
 
-```mermaid
-flowchart LR
-    User["<img src='./docs/icons/microsoft-teams.svg' height='26'/> <img src='./docs/icons/microsoft-365-copilot.svg' height='26'/><br/>Teams / M365 Copilot"]
-    Bot["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/>Azure Bot Service<br/>(Managed Identity)"]
-    APIM["<img src='./docs/icons/azure-api-management.svg' height='28'/><br/>APIM<br/>validate-jwt"]
-    App["<img src='./docs/icons/azure-app-services.svg' height='28'/><br/>Orchestrator Agent"]
-    Search["<img src='./docs/icons/azure-ai-search.svg' height='28'/><br/>AI Search<br/>(per-user ACLs)"]
-    Foundry["<img src='./docs/icons/microsoft-foundry.svg' height='28'/><br/>Microsoft Foundry"]
+![Production architecture: Teams / M365 Copilot to Azure Bot Service, APIM (validate-jwt), Orchestrator Agent, AI Search and Microsoft Foundry](./docs/architecture-production.png)
 
-    User <-->|"prompt / response"| Bot
-    Bot <-->|"POST activity (JWT) / reply"| APIM
-    APIM <-->|"proxy /api/messages"| App
-    App <-->|"search token + query / ACL docs"| Search
-    App <--> Foundry
+<!-- Diagram source: docs/architecture-production.mmd (regenerate the PNG with mermaid-cli) -->
 
-    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
-    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
-    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px,color:#E65100;
-    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
-    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:1px,color:#880E4F;
-
-    class User client;
-    class Bot bot;
-    class APIM gateway;
-    class App app;
-    class Search,Foundry ai;
-```
 
 First, run the following command to deploy the application to Azure:
 
@@ -252,11 +229,10 @@ The Teams app id is a unique GUID identifying the app in the catalog. **Keep it 
 
 ```bash
 # Only set it if it isn't already stored (idempotent)
-azd env get-values | grep -q '^TEAMS_APP_ID=' || azd env set TEAMS_APP_ID "$(uuidgen)"
+azd env get-values | grep -q '^TEAMS_APP_ID=' || azd env set TEAMS_APP_ID "$(cat /proc/sys/kernel/random/uuid)"
 ```
 
-- No `uuidgen`? Use the kernel: `azd env set TEAMS_APP_ID "$(cat /proc/sys/kernel/random/uuid)"`.
-- To force a brand-new id later: `azd env set TEAMS_APP_ID "$(uuidgen)"`.
+- To force a brand-new id later: `azd env set TEAMS_APP_ID "$(cat /proc/sys/kernel/random/uuid)"`.
 
 > Tip: run `export AZD_SKIP_UPDATE_CHECK=true` so azd's "update available" banner doesn't pollute `azd env get-value` output in scripts.
 
@@ -285,37 +261,10 @@ Now follow the [Upload the app to Teams](./README.md#upload-the-app-to-teams) se
 
 To run the application in development/debug mode, you need to set up a dev tunnel and run the local agent. 
 
-```mermaid
-flowchart LR
-    User["<img src='./docs/icons/microsoft-teams.svg' height='26'/> <img src='./docs/icons/microsoft-365-copilot.svg' height='26'/><br/>Teams / M365 Copilot"]
-    Bot["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/>Local Bot Service<br/>(single-tenant + secret)"]
-    APIM["<img src='./docs/icons/azure-api-management.svg' height='28'/><br/>APIM<br/>validate-jwt"]
-    Tunnel["<img src='./docs/icons/azure-dev-tunnels.svg' height='28'/><br/>Dev tunnel<br/>(public URL)"]
-    Local["<img src='./docs/icons/azure-app-services.svg' height='28'/><br/>Local agent<br/>python main.py :3978"]
-    Search["<img src='./docs/icons/azure-ai-search.svg' height='28'/><br/>AI Search<br/>(per-user ACLs)"]
-    Foundry["<img src='./docs/icons/microsoft-foundry.svg' height='28'/><br/>Microsoft Foundry"]
+![Development architecture: Teams / M365 Copilot to Local Bot Service, APIM, Dev tunnel, Local agent, AI Search and Microsoft Foundry](./docs/architecture-development.png)
 
-    User <-->|"prompt / response"| Bot
-    Bot <-->|"POST activity (JWT) / reply"| APIM
-    APIM <-->|"proxy /api/messages"| Tunnel
-    Tunnel <--> Local
-    Local <-->|"search token + query / ACL docs"| Search
-    Local <--> Foundry
+<!-- Diagram source: docs/architecture-development.mmd (regenerate the PNG with mermaid-cli) -->
 
-    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
-    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
-    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:1px,color:#E65100;
-    classDef tunnel fill:#FFFDE7,stroke:#F9A825,stroke-width:1px,color:#F57F17;
-    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
-    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:1px,color:#880E4F;
-
-    class User client;
-    class Bot bot;
-    class APIM gateway;
-    class Tunnel tunnel;
-    class Local app;
-    class Search,Foundry ai;
-```
 
 First, run the following command to login to the dev tunnel:
 
@@ -355,11 +304,10 @@ The dev app is a **distinct** Teams app, so it uses its own GUID stored as `TEAM
 
 ```bash
 # Only set it if it isn't already stored (idempotent)
-azd env get-values | grep -q '^TEAMS_APP_ID_DEV=' || azd env set TEAMS_APP_ID_DEV "$(uuidgen)"
+azd env get-values | grep -q '^TEAMS_APP_ID_DEV=' || azd env set TEAMS_APP_ID_DEV "$(cat /proc/sys/kernel/random/uuid)"
 ```
 
-- No `uuidgen`? Use the kernel: `azd env set TEAMS_APP_ID_DEV "$(cat /proc/sys/kernel/random/uuid)"`.
-- To force a brand-new id later: `azd env set TEAMS_APP_ID_DEV "$(uuidgen)"`.
+- To force a brand-new id later: `azd env set TEAMS_APP_ID_DEV "$(cat /proc/sys/kernel/random/uuid)"`.
 
 #### 2. Build the dev manifest package
 
