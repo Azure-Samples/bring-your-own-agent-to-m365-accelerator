@@ -1,0 +1,47 @@
+flowchart TB
+    User["<img src='./docs/icons/microsoft-teams.svg' height='26'/> <img src='./docs/icons/microsoft-365-copilot.svg' height='26'/><br/>Teams / M365 Copilot"]
+
+    %% Row 1 — two columns of bot identities
+    BotP["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/><b>Production</b><br/>Azure Bot Service<br/>(Managed Identity)"]
+    BotD["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/><b>Development / Debug</b><br/>Local Bot Service<br/>(single-tenant + secret)"]
+
+    %% Transversal band spanning both columns (left ↔ right)
+    APIM["&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;<img src='./docs/icons/azure-api-management.svg' height='28'/> &nbsp; <b>APIM</b> <br/> (validate-jwt policy) &nbsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;"]
+
+    %% Row 2 — two columns of compute
+    AppP["<img src='./docs/icons/azure-app-services.svg' height='28'/><br/>Orchestrator Agent<br/>(App Service)"]
+    Tunnel["<img src='./docs/icons/azure-dev-tunnels.svg' height='28'/><br/>Dev tunnel<br/>(public URL)"]
+    Local["<img src='./docs/icons/computer.svg' height='28'/><br/>Local agent<br/>python main.py :3978"]
+
+    %% Shared foundation
+    Search["<img src='./docs/icons/azure-ai-search.svg' height='28'/><br/>AI Search<br/>(per-user ACLs)"]
+    Foundry["<img src='./docs/icons/microsoft-foundry.svg' height='28'/><br/>Microsoft Foundry"]
+
+    User <-->|"prompt / response"| BotP
+    User <-->|"prompt / response"| BotD
+
+    BotP <-->|"POST activity on /bot <br> (JWT) / reply"| APIM
+    BotD <-->|"POST activity on /bot-local <br> (JWT) / reply"| APIM
+
+    APIM <-->|"proxy /api/messages"| AppP
+    APIM <-->|"proxy /api/messages"| Tunnel
+    Tunnel <--> Local
+
+    AppP <-->|"search + query / ACL docs"| Search
+    AppP <--> Foundry
+    Local <-->|"search + query / ACL docs"| Search
+    Local <--> Foundry
+
+    classDef client fill:#E3F2FD,stroke:#1565C0,stroke-width:1px,color:#0D47A1;
+    classDef bot fill:#EDE7F6,stroke:#5E35B1,stroke-width:1px,color:#311B92;
+    classDef gateway fill:#FFF3E0,stroke:#EF6C00,stroke-width:2px,color:#E65100;
+    classDef tunnel fill:#FFFDE7,stroke:#F9A825,stroke-width:1px,color:#F57F17;
+    classDef app fill:#E8F5E9,stroke:#2E7D32,stroke-width:1px,color:#1B5E20;
+    classDef ai fill:#FCE4EC,stroke:#C2185B,stroke-width:1px,color:#880E4F;
+
+    class User client;
+    class BotP,BotD bot;
+    class APIM gateway;
+    class Tunnel tunnel;
+    class AppP,Local app;
+    class Search,Foundry ai;
