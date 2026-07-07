@@ -450,7 +450,7 @@ module apiManagement './modules/apim/apim.bicep' = {
   }
 }
 
-// Prod bot API: validate-jwt (audience = prod bot MSI) -> App Service backend.
+// Prod bot API: validate-jwt (audience = prod bot app id) -> App Service backend.
 module botApiProd './modules/apim/apim-bot-api.bicep' = {
   name: 'botApiProd'
   scope: resourceGroup
@@ -463,7 +463,7 @@ module botApiProd './modules/apim/apim-bot-api.bicep' = {
   }
 }
 
-// Local bot API: validate-jwt (audience = local bot) -> dev tunnel backend.
+// Local bot API: validate-jwt (audience = local bot app id) -> dev tunnel backend.
 module botApiLocal './modules/apim/apim-bot-api.bicep' = {
   name: 'botApiLocal'
   scope: resourceGroup

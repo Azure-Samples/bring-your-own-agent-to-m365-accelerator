@@ -14,14 +14,13 @@ from os import environ
 
 from azure.identity import DefaultAzureCredential
 from dotenv import load_dotenv
-from microsoft_agents.activity import ChannelId, load_configuration_from_env
+from microsoft_agents.activity import load_configuration_from_env
 from microsoft_agents.authentication.msal import MsalConnectionManager
 from microsoft_agents.hosting.aiohttp import CloudAdapter
 from microsoft_agents.hosting.core import (
     AgentApplication,
     Authorization,
     MemoryStorage,
-    Middleware,
     TurnContext,
     TurnState,
 )
@@ -45,25 +44,6 @@ agents_sdk_config = load_configuration_from_env(environ)
 STORAGE = MemoryStorage()
 CONNECTION_MANAGER = MsalConnectionManager(**agents_sdk_config)
 ADAPTER = CloudAdapter(connection_manager=CONNECTION_MANAGER)
-
-
-# Microsoft 365 Copilot delivers activities on channel id "msteams:COPILOT". The Bot
-# Framework token service stores the OAuth token under the base channel ("msteams", used by
-# the sign-in resource), but the SDK's GetToken retrieval keeps the ":COPILOT" sub-channel
-# and returns 404 — leaving the per-user search token empty, so AI Search skips ACL
-# filtering and only public ("all") documents come back. Normalizing the channel id at the
-# very start of the turn (before sign-in, flow state, token cache, and token retrieval)
-# keeps them consistent so the token is found.
-class _NormalizeCopilotChannelMiddleware(Middleware):
-    async def on_turn(self, context: TurnContext, logic):
-        channel = context.activity.channel_id
-        base = getattr(channel, "channel", None)
-        if base and str(channel) != base:
-            context.activity.channel_id = ChannelId(base)
-        await logic()
-
-
-ADAPTER.use(_NormalizeCopilotChannelMiddleware())
 AUTHORIZATION = Authorization(STORAGE, CONNECTION_MANAGER, **agents_sdk_config)
 
 AGENT_APP = AgentApplication[TurnState](

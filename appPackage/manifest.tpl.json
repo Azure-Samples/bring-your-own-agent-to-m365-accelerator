@@ -1,6 +1,6 @@
 {
-    "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.24/MicrosoftTeams.schema.json",
-    "manifestVersion": "1.24",
+    "$schema": "https://developer.microsoft.com/json-schemas/teams/v1.29/MicrosoftTeams.schema.json",
+    "manifestVersion": "1.29",
     "version": "${{APP_VERSION}}",
     "id": "${{TEAMS_APP_ID}}",
     "developer": {
@@ -22,6 +22,7 @@
         "full": "Help you to get ${{APP_FULL_NAME}} to do tasks related to your company data."
     },
     "accentColor": "#FFFFFF",
+    "supportsChannelFeatures": "tier1",
     "copilotAgents": {
         "customEngineAgents": [
             {
