@@ -16,6 +16,7 @@ DIAGRAMS=(
   "architecture-overview"
   "architecture-production"
   "architecture-development"
+  "generic-architecture-overview"
 )
 
 # Puppeteer needs --no-sandbox when Chrome headless runs inside a container.
@@ -23,7 +24,7 @@ PUPPETEER_CONFIG="$(mktemp)"
 echo '{ "args": ["--no-sandbox", "--disable-setuid-sandbox"] }' > "$PUPPETEER_CONFIG"
 
 for name in "${DIAGRAMS[@]}"; do
-  src="docs/${name}.mmd"
+  src="docs/mermaids/${name}.mmd"
   [[ -f "$src" ]] || { echo "skip: $src not found"; continue; }
 
   tmp="$(mktemp --suffix=.mmd)"
@@ -39,7 +40,7 @@ pathlib.Path(os.environ["TMP"]).write_text(out)
 PY
 
   echo "rendering docs/${name}.png"
-  mmdc -i "$tmp" -o "docs/${name}.png" -b white --scale 3 -p "$PUPPETEER_CONFIG"
+  mmdc -i "$tmp" -o "docs/images/${name}.png" -b white --scale 3 -p "$PUPPETEER_CONFIG"
   rm -f "$tmp"
 done
 

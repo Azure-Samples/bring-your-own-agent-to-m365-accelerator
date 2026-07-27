@@ -1,12 +1,11 @@
-flowchart TB
+flowchart LR
     User["<img src='./docs/icons/microsoft-teams.svg' height='26'/> <img src='./docs/icons/microsoft-365-copilot.svg' height='26'/><br/>Teams / M365 Copilot"]
 
     %% Row 1 — two columns of bot identities
     BotP["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/><b>Production</b><br/>Azure Bot Service<br/>(Managed Identity)"]
     BotD["<img src='./docs/icons/azure-bot-services.svg' height='28'/><br/><b>Development / Debug</b><br/>Local Bot Service<br/>(single-tenant + secret)"]
 
-    %% Transversal band spanning both columns (left ↔ right)
-    APIM["&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;<img src='./docs/icons/azure-api-management.svg' height='28'/> &nbsp; <b>APIM</b> <br/> (validate-jwt policy) &nbsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;&emsp;"]
+    APIM["<img src='./docs/icons/azure-api-management.svg' height='28'/><br/><b>APIM</b><br/>(validate-jwt policy)"]
 
     %% Row 2 — two columns of compute
     AppP["<img src='./docs/icons/azure-app-services.svg' height='28'/><br/>Orchestrator Agent<br/>(App Service)"]
