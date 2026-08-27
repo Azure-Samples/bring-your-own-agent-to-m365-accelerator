@@ -71,7 +71,7 @@ To achieve that, in the Bot Service, inside **Configuration** in the **OAuth Con
 
 - The AAD v2 with Federated Credentials with `https://search.azure.com/user_impersonation` to access the Azure AI Search service. This is the token that will be used to query the Azure AI Search service on behalf of the user.
 
-![Bot Service OAuth Connection Settings](./docs/images/bot-service-oauth-connection-settings.png)
+![Bot Service OAuth Connection Settings](./images/bot-service-oauth-connection-settings.png)
 
 As you can see above, you define a **Name** for each of the service providers, and you will use that name inside the .env file.
 
