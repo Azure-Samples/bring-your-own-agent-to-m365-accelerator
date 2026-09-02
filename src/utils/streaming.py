@@ -4,7 +4,6 @@ import logging
 
 from microsoft_agents.hosting.core import TurnContext
 
-from agents.constants import get_friendly_label
 from agents.orchestrator import OrchestratorAgent
 
 logger = logging.getLogger("utils.streaming")
@@ -34,7 +33,7 @@ async def stream_agent_response(
         if chunk.agent_response:
             context.streaming_response.queue_text_chunk(chunk.agent_response.text)
         elif chunk.tool_calls:
-            label = get_friendly_label(chunk.tool_calls.name)
+            label = chunk.tool_calls.name or "tool"
             called_tools[chunk.tool_calls.call_id] = label
             context.streaming_response.queue_informative_update(f"Calling {label}...")
         elif chunk.tool_answers:
